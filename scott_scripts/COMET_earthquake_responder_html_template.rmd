@@ -1,0 +1,687 @@
+---
+title: "Earthquake Event"
+pagetitle: "Earthquake Event"
+output: 
+  html_document:
+    includes:
+       in_header: GA_Script.html
+---
+
+<!-- Add COMET banner -->
+<script>
+   $(document).ready(function() {
+     $head = $('#header');
+     $head.prepend('<a href="https://comet.nerc.ac.uk/"><img src=\"https://comet.nerc.ac.uk/wp-content/uploads/2020/09/eq_event_page_banner.jpg\" style=\"float: center;\"/></a>')
+   });
+</script>
+
+
+```{r setup, include=FALSE}
+renv::load('C:/Users/earcwat/Desktop/COMET_LICSAR')
+library(data.table)
+library(tidyverse)
+library(DT)
+library(knitr)
+library(kableExtra)
+library(leaflet)
+library(leaflet.providers)
+library(leaflet.extras)
+library(leafem)
+library(rvest)
+library(dplyr)
+library(kableExtra)
+library(raster) #Do not update past v2.9-22 or read raster from URL does not work
+library(wellknown)
+library(rgdal)
+library(rgeos)
+library(RCurl)
+library(sp)
+library(png)
+library(maptools)
+library(stars)
+library(httr)
+
+use_providers("1.10.2") #Jun 2021 - force leaflet.providers to use latest package to provide leaflet basemaps over https and stop mixed content warnings
+#22/11/2021-Chanegs url.exists to httr package !http_error. Url exists was giving false when url did exists.
+
+
+#####README#####
+## Load local data files - check source paths (search 'laptop/office'). Ensure C:/Users/Scott/Desktop/usgs_quakes_datatweet.csv is in folder
+##Search script for 'laptop/office' to check file paths are correct) 
+##Specify source for give feedback icon under 'Add html compilation date and feedback'
+##paths:
+#laptop
+#faults <- shapefile("H:/Processing/Work/20_LiCSAR/web_map/faults/gem_active_faults_harmonized_simplified2km.shp")
+#dummy <- shapefile("H:/Processing/Work/20_LiCSAR/web_map/current_frames/dummy_data.shp")
+#aframes <- shapefile("H:/Processing/Work/20_LiCSAR/web_map/current_frames/ascending.shp")
+#dframes <- shapefile("H:/Processing/Work/20_LiCSAR/web_map/current_frames/descending.shp")
+#aframes_c <- readOGR("H:/Processing/Work/20_LiCSAR/web_map/current_frames/ascending.shp")
+
+
+#Read live frame definitions
+aframes <- st_read("http://gws-access.ceda.ac.uk/public/nceo_geohazards/shared/test/bursts/ascending.kml")
+aframes <- aframes[1]
+aframes$frame <- as.character(aframes$Name)
+dframes <- st_read("http://gws-access.ceda.ac.uk/public/nceo_geohazards/shared/test/bursts/descending.kml")
+dframes <- dframes[1]
+dframes$frame <- as.character(dframes$Name)
+#Write frames to shp
+st_write(dframes, "C:/Users/earcwat/Desktop/COMET_LICSAR/EIDP/data/descending_live.shp",  delete_dsn = T)#delete dsn to enable overwrite of eisting files
+st_write(aframes, "C:/Users/earcwat/Desktop/COMET_LICSAR/EIDP/data/ascending_live.shp",  delete_dsn = T)
+
+#office - re-read written live shapfiles - otherwise get centroid function fails
+faults <- shapefile("C:/Users/earcwat/Desktop/COMET_LICSAR/EIDP/data/gem_active_faults_harmonized_simplified2km.shp")
+dummy <- shapefile("C:/Users/earcwat/Desktop/COMET_LICSAR/EIDP/data/dummy_data.shp")
+aframes <- shapefile("C:/Users/earcwat/Desktop/COMET_LICSAR/EIDP/data/ascending_live.shp")
+dframes <- shapefile("C:/Users/earcwat/Desktop/COMET_LICSAR/EIDP/data/descending_live.shp")
+#aframes_c <- readOGR("C:/Users/earcwat/Desktop/COMET_LICSAR/EIDP/data/ascending.shp")
+
+
+
+
+
+#####Notes#####
+#html files on public storage (Milan's htmls) should have two lines: (1) USGS info on ...us70007v29, (2) USGS kml file. More than two lines in these files tells the script there is data to add to the map
+################
+```
+
+<!-- Add html compilation date and feedback -->
+<span style="float:right;"><a href="https://comet.nerc.ac.uk/comet-lics-portal-feedback/"><img src="C:/Users/earcwat/Desktop/COMET_LICSAR/EIDP/images/feedback.JPG" width="191" height="43" /></a></span></p> 
+<span style="float:right;"><a href="https://comet.nerc.ac.uk/comet-lics-portal-earthquake-event/"><img src="C:/Users/earcwat/Desktop/COMET_LICSAR/EIDP/images/event_map.jpg" width="191" height="43" /></a></span></p> 
+
+
+
+*Last compiled on `r format(Sys.time(), tz = "UTC")` UTC*  
+<br/><br/>
+```{r select_eq, echo=FALSE}
+#Earthquake event that will be compiled
+subgroup1 <- subgroup[1:1,]
+usgs_page <- paste0("[USGS Information:]", "(https://earthquake.usgs.gov/earthquakes/eventpage/", subgroup1$USGS.ID, "/executive)") 
+kable(usgs_page, col.names = NULL) %>%
+  column_spec(1, bold = T)
+```
+
+```{r quake_table, echo=FALSE}
+#Write a table of the USGS info
+kable(subgroup1[1, 1:7], "html", row.names = FALSE)%>% #columns 1:7
+  kable_styling(bootstrap_options = c("condensed"))
+```
+
+```{r frame_details, echo=FALSE}
+#Get details of frames that will be processed 
+#quake_frame <- read.csv2("C:/Users/Scott/Downloads/eqframes.regen.csv", dec = ".") 
+quake_frame <- read.csv2("http://gws-access.ceda.ac.uk/public/nceo_geohazards/LiCSAR_products/EQ/eqframes.csv", dec = ".") 
+quake_frame <- dplyr::rename(quake_frame, USGS.ID = usgsid, Frame.Data = download)
+quake_frame$Frame.Data <- as.character(quake_frame$Frame.Data)
+quake_frame$Frame.Data <- str_sub(quake_frame$Frame.Data, end=-9) #Remove 'Link</a>', to be replaced with the frame ID
+quake_frame$Frame.Data <- paste(quake_frame$Frame.Data, quake_frame$frame, "</a>", sep = "")
+quake_frame$Frame.Data <- gsub('ceda','jasmin',quake_frame$Frame.Data)#Change frame url to 'JASMIN' jasmin' from ceda to avoid security warning in web browser in 'Activated frames' table
+
+#quake_frame <- add_column(quake_frame, Frame = paste(quake_frame$FrameData, quake_frame$FrameID, "</a>", sep = "")) #add the icon file path and id as a column
+quake_frame <- merge(subgroup1, quake_frame, by="USGS.ID")
+quake_frame <- add_row(quake_frame, frame = "dd")#add dummy data frame 'dd' to avoid adding NULL data to leaflet map
+quake_frame$Direction <- str_sub(quake_frame$frame, 4,4)#add frame direction column
+quake_frame_dt <- dplyr::select(quake_frame,-c(USGS.ID, the_geom, Location, Date.Time.UTC, Magnitude, Depth.km, Latitude, Longitude, LiCSAR.Data, frame, next_expected))
+quake_frame_dt <- dplyr::rename(quake_frame_dt, Next.Possible.Aquisition = next_possible)
+#head(quake_frame)
+```
+
+
+```{r get_data, include=FALSE, message = FALSE, warning = FALSE}
+####Used for the LiCSAR data table and to load in the first interferogram for the map
+#Function to scrape links from the LiCSAR html pages
+scrapelinks <- function(url){
+    # Create an html document from the url
+    webpage <- xml2::read_html(url)
+    # Extract the URLs
+    url_ <- webpage %>%
+        rvest::html_nodes("a") %>%
+        rvest::html_attr("href")
+    # Extract the link text
+    frame_ <- webpage %>%
+        rvest::html_nodes("a") %>%
+        rvest::html_text()
+    return(data.frame(frame = frame_, url =  url_))
+}
+
+#Scrape the links and change the frame id column to a data hyperlink
+#links <- scrapelinks(paste("http://gws-access.ceda.ac.uk/public/nceo_geohazards/LiCSAR_products/EQ/", subgroup1$USGS.ID, ".html", sep = ""))
+#links$frame <- paste0("[", links$frame, "](", links$url, ")") #to get a hyperlink
+#Write the table
+#kable(links, "html", row.names = FALSE)%>% 
+  #kable_styling(bootstrap_options = c("condensed"))
+
+
+#Create dataframe with .kmz and USGS links removed. Separate frame ID from date list
+links2 <- scrapelinks(paste("http://gws-access.ceda.ac.uk/public/nceo_geohazards/LiCSAR_products/EQ/", subgroup1$USGS.ID,  ".html", sep = "")) #
+#linksp$frame %>% separate(linksp$frame, c("frame", "dates"), sep = ":")
+links2 <- data.frame(lapply(links2, gsub, pattern = "ceda", replacement = "jasmin", fixed = TRUE))#Added after switch from http to https implemented since certificate is issued to jasmin not ceda. otherwise it will fail with a security warning when downloading the raster data
+
+#######################
+#Convert asc and desc frame polygons to centroids and get lon (x) lat (y) info to find closest frames to eq epicentre
+aframes_cent <- SpatialPointsDataFrame(gCentroid(aframes, byid=TRUE), 
+                                      aframes@data, match.ID=FALSE)
+#acoords <- coordinates(aframes_cent) #get x y coordinates
+aframes_coords <- as.data.frame(aframes_cent) #convert to dataframe
+##
+dframes_cent <- SpatialPointsDataFrame(gCentroid(dframes, byid=TRUE), 
+                                      dframes@data, match.ID=FALSE)
+#dcoords <- coordinates(dframes_cent) #get x y coordinates
+dframes_coords <- as.data.frame(dframes_cent) #convert to dataframe
+#shapefile(aframes_cent, "C:/Users/Scott/Desktop/frames/aframes_cent.shp", overwrite=TRUE) #write shapefile
+
+##Get aframe distance to eq
+aframes_coords$diff_lon <- abs(aframes_coords$x - subgroup1$Longitude)
+aframes_coords$diff_lat <- abs(aframes_coords$y - subgroup1$Latitude)
+aframes_coords$sumd <- abs(aframes_coords$diff_lon + aframes_coords$diff_lat)
+##Get dframe distance to eq
+dframes_coords$diff_lon <- abs(dframes_coords$x - subgroup1$Longitude)
+dframes_coords$diff_lat <- abs(dframes_coords$y - subgroup1$Latitude)
+dframes_coords$sumd <- abs(dframes_coords$diff_lon + dframes_coords$diff_lat)
+arrange(dframes_coords, sumd)#order frames by distance from epicentre
+
+#Get closest frames to epicentre
+map_ifg1 <- aframes_coords %>% 
+              arrange(sumd)%>%
+              filter(row_number()==1)%>%
+              dplyr::select(frame)
+map_ifg2 <- dframes_coords %>% 
+              arrange(sumd)%>%
+              filter(row_number()==1)%>%
+              dplyr::select(frame)
+map_ifg3 <- aframes_coords %>% 
+              arrange(sumd)%>%
+              filter(row_number()==2)%>%
+              dplyr::select(frame)
+map_ifg4 <- dframes_coords %>% 
+              arrange(sumd)%>%
+              filter(row_number()==2)%>%
+              dplyr::select(frame)
+
+
+#######################
+#Test to see if htmls have more than two lines (i.e. have some data and not just the two USGS lines)
+
+links2 <- links2[- grep("metadata", links2$frame),] #Added 24/04/2023. Remove metadata lines from Milan's htmls to avoid error below if event has more than 2 lines but no data (error caused by event: at00rsm3ae)
+
+if(nrow(links2) > 2){
+#linksep$dates[1] <- "20210304_20210307" #Manually change to a post seismic date for testing
+linksep <- links2[- grep("km", links2$frame),]#changed from kmz to 'km' to account for html files that have kml link but missing kmz
+#linksep <- linksep[- grep("metadata", linksep$frame),] Commented out 24/04/2023 when added above
+linksep <- linksep[- grep("USGS", linksep$frame),] %>% separate(frame, c("Frame", "dates"), sep = ": ")
+linksep$Frame <- as.factor(linksep$Frame)
+linksep$Direction <- str_sub(linksep$Frame, 4,4)#add frame direction column
+#Derive pre, coseismic/postseimic status
+linksep$Observation <- str_sub(linksep$dates, 0,8) #get string date of first observation
+linksep$Observation <- as.Date(linksep$Observation, "%Y%m%d") #Convert string to date format
+linksep$Observation <- as.numeric(difftime(linksep$Observation, subgroup1$Date.Time.UTC, units = "days"))
+linksep <- mutate(linksep, Observation = ifelse(linksep$Observation >= 0, "Postseismic", "Coseismic")) 
+
+#########
+linksep$Observation2 <- str_sub(linksep$dates, 10,17) #get string date of second observation
+linksep$Observation2 <- as.Date(linksep$Observation2, "%Y%m%d") #Convert string to date format
+linksep$Observation2 <- as.numeric(difftime(linksep$Observation2, subgroup1$Date.Time.UTC, units = "days"))
+linksep <- mutate(linksep, Observation = ifelse(linksep$Observation2 <= -1, "Preseismic", linksep$Observation)) 
+linksep <- dplyr::select(linksep,-c(Observation2)) #Remove ob2 column after pre,pco,post status was derived
+
+
+
+#Product download link
+linksep$Products.Download <- paste0("<a href='", linksep$url, "' target='_blank'>", linksep$date, "<a>") #to get a hyperlink
+linksep$Wrapped.Interferogram1 <- paste0('<img src="',linksep$url,"/",linksep$dates,'.geo.diff.png"></img>', sep = "") #to get a hyperlink
+#linksep$Wrapped.Interferogram <- paste0('<a href="',linksep$url,'/',linksep$dates,'.geo.diff.png">',
+#                                        '<img src="',linksep$url,'/',linksep$dates,'.geo.diff.png"></img>','</a>', sep = '') #to get a hyperlink
+linksep$Wrapped.Interferogram <- paste0('<a href="',linksep$url,'/',linksep$dates,'.geo.diff.png"','>','<img src="',linksep$url,'/',linksep$dates,'.geo.diff.png"','></img></a>', sep = "")
+} 
+
+
+#Get view extent
+lat <- subgroup1$Latitude
+lon <- subgroup1$Longitude
+
+#Join frames csv with shapefile
+aframes <- bind(aframes, dummy)
+dframes <- bind(dframes, dummy)
+aframes_joined <- merge(aframes, quake_frame,  by='frame', all = FALSE) #join both shapefiles
+dframes_joined <- merge(dframes, quake_frame, by='frame', all = FALSE) #join shapefile with quakes CSV and keep only matching records
+
+####
+#To fix missing map pages. Remove unnecessary columns
+aframes_joined <- aframes_joined[,-(2:17)]
+dframes_joined <- dframes_joined[,-(2:17)]
+####
+
+#Create raster dummy data to add to the map if no interferogram data exists
+rd <- matrix(1,6,6)
+#image(rd)
+drast <- raster(rd)
+extent(drast) <- c(subgroup1$Latitude,subgroup1$Latitude + 0.006 ,subgroup1$Longitude,subgroup1$Longitude + 0.006)
+crs(drast) <- CRS("+init=epsg:3857")
+
+#####################################
+#Find closest ifg to epicentre to add to map
+if(nrow(links2) > 2){
+wrapped_link1 <- filter(linksep, Frame==map_ifg1[1,])
+wrapped_link2 <- filter(linksep, Frame==map_ifg2[1,])
+wrapped_link3 <- filter(linksep, Frame==map_ifg3[1,])
+wrapped_link4 <- filter(linksep, Frame==map_ifg4[1,])
+} else {
+wrapped_link1 <- data.frame(Date=as.Date(character()),
+                 File=character(), 
+                 User=character(), 
+                 stringsAsFactors=FALSE) 
+wrapped_link2 <- df <- data.frame(Date=as.Date(character()),
+                 File=character(), 
+                 User=character(), 
+                 stringsAsFactors=FALSE) 
+wrapped_link3 <- df <- data.frame(Date=as.Date(character()),
+                 File=character(), 
+                 User=character(), 
+                 stringsAsFactors=FALSE) 
+wrapped_link4 <- df <- data.frame(Date=as.Date(character()),
+                 File=character(), 
+                 User=character(), 
+                 stringsAsFactors=FALSE) 
+}  
+  
+nrow(wrapped_link1)
+#test to see if the closest four frames have data. Create a data link to the closest ifg.
+if(nrow(wrapped_link1) > 0){
+wrapped_link <- filter(wrapped_link1, row_number()==1)
+wrapped_link <- dplyr::select(wrapped_link, Wrapped.Interferogram1)
+wrapped_link <- gsub("<img src=\"", "", wrapped_link)
+wrapped_link <- gsub("\"></img>", "", wrapped_link)
+wrapped_link <- gsub(".png", "_pha.tif", wrapped_link)
+wrapped_link <- gsub("https", "http", wrapped_link) #curl will fail with https, without SSL installed?
+unwrapped_link <- gsub("diff_pha", "unw", wrapped_link)
+} else if (nrow(wrapped_link2) > 0){
+wrapped_link <- filter(wrapped_link2, row_number()==1)
+wrapped_link <- dplyr::select(wrapped_link, Wrapped.Interferogram1)
+wrapped_link <- gsub("<img src=\"", "", wrapped_link)
+wrapped_link <- gsub("\"></img>", "", wrapped_link)
+wrapped_link <- gsub(".png", "_pha.tif", wrapped_link)
+wrapped_link <- gsub("https", "http", wrapped_link)
+unwrapped_link <- gsub("diff_pha", "unw", wrapped_link)
+} else if (nrow(wrapped_link3) > 0){
+wrapped_link <- filter(wrapped_link3, row_number()==1)
+wrapped_link <- dplyr::select(wrapped_link, Wrapped.Interferogram1)
+wrapped_link <- gsub("<img src=\"", "", wrapped_link)
+wrapped_link <- gsub("\"></img>", "", wrapped_link)
+wrapped_link <- gsub(".png", "_pha.tif", wrapped_link)
+wrapped_link <- gsub("https", "http", wrapped_link)
+unwrapped_link <- gsub("diff_pha", "unw", wrapped_link)
+} else if (nrow(wrapped_link4) > 0){
+wrapped_link <- filter(wrapped_link4, row_number()==1)
+wrapped_link <- dplyr::select(wrapped_link, Wrapped.Interferogram1)
+wrapped_link <- gsub("<img src=\"", "", wrapped_link)
+wrapped_link <- gsub("\"></img>", "", wrapped_link)
+wrapped_link <- gsub(".png", "_pha.tif", wrapped_link)
+wrapped_link <- gsub("https", "http", wrapped_link)
+unwrapped_link <- gsub("diff_pha", "unw", wrapped_link)
+} else {
+wrapped_link <- 404L #Force broken link
+unwrapped_link <- 404L #Force broken link
+}  
+
+########### Write out data link for autotweeting  ###########################
+wrapped_link_tweet <- gsub("_pha.tif",".png", wrapped_link) #Get link URL to data .png image
+
+###Run once to generate file to append to if it doesn't exist
+#write.csv2(usgs_quakes_datatweet_new,'C:/Users/Scott/Desktop/usgs_quakes_datatweet.csv', row.names=F)
+#usgs_quakes_datatweeted <- add_column(usgs_quakes, tweeted = paste("0")) #add new column to say data has been tweeted
+###
+
+#laptop/office
+#If a data link to tweet has already been written, don't append it again to the csv. Only one ifg that overlaps the epicentre is tweeted for each event)
+if (nchar(wrapped_link_tweet) > 6){
+  usgs_quakes_datatweet <- read.csv2("C:/Users/earcwat/Desktop/COMET_LICSAR/EIDP/outputs/usgs_quakes_datatweet.csv", dec = ".", stringsAsFactors=FALSE)
+  usgs_quakes_datatweet <- dplyr::filter(usgs_quakes_datatweet, USGS.ID == subgroup$USGS.ID)
+  if(nrow(usgs_quakes_datatweet) == 0){
+  usgs_quakes_datatweet_new <- add_column(subgroup, data_tweet = paste(wrapped_link_tweet)) #add new column and paste url to wrapped data .png image
+  write.table(usgs_quakes_datatweet_new,  
+             file="C:/Users/earcwat/Desktop/COMET_LICSAR/EIDP/outputs/usgs_quakes_datatweet.csv", 
+             append = T, 
+             sep=';', 
+             row.names=F, 
+             col.names=F,
+             quote = FALSE) #Quote FALSE to match eq data tweet script. Doesn't add " around text
+  }                 
+}
+############################################################################                                    
+#######If wrapped data link is true (i.e. the eq has some data processed) = load data, if false = load dummy raster data#######
+if(!http_error(wrapped_link)){
+wrapped <- raster(wrapped_link)
+wrapped[wrapped == 0] <- NA #Set 0 values to no data. Added April 2022 after 0 padding started appearing on event maps (also QGIS)
+
+##Added March 2023. If wrapped ifgm exists but unwrapped is missing, Set unwrapped to 0 to avoid exit error
+if(!http_error(unwrapped_link)){
+  unwrapped <- raster(unwrapped_link)  } 
+  else {
+    unwrapped <- wrapped
+    unwrapped[unwrapped >-10] <- 0
+  }
+##
+##########Load landmask file if it exists#########
+wrappeddir <- str_sub(wrapped_link, end=-69) #Trim end of wrapped link up to  frame id
+#Function to get end of a string
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+wrappedframe <-substrRight(wrappeddir, 17)#Trim start of wrapped link up to frame id
+#landmask <- "https://gws-access.ceda.ac.uk/public/nceo_geohazards/LiCSAR_products/33/033D_05304_131313/metadata/033D_05304_131313.geo.landmask.tif"
+landmask <- paste0(wrappeddir,'/metadata/', wrappedframe,'.geo.landmask.tif', sep = "") #create URL for landmask
+ ####Not all frames have a land mask (even those that should), so check to see if one exists
+ if(!http_error(landmask)){
+  landmask <- raster(landmask)
+  #########Mask data using landmask################
+  #landmask is not same extent as frame data
+  #mask wrapped
+  landmasknd <- mask(landmask,landmask/landmask) #change 0 values to NA
+  wresample <- resample(wrapped, landmasknd, "ngb") #Resample to same grid
+  data_extent <- extent(wresample)
+  landmaskclipped <- crop(landmasknd, data_extent)
+  wrapped_masked <- mask(wresample, landmaskclipped)
+  #Mask unwrapped by landmask
+  uresample <- resample(unwrapped, landmasknd, "ngb") #Resample to same grid
+  data_extent <- extent(uresample)
+  landmaskclipped <- crop(landmasknd, data_extent)
+  unwrapped_masked <- mask(uresample, landmaskclipped)
+  #Mask unwrapped by wrapped (required to remove additional unwrapped pixels on frame boundary with spurious values)
+  uresample <- resample(unwrapped_masked, wrapped_masked, "ngb") #Resample to same grid
+  data_extent <- extent(uresample)
+  wrappedmaskclipped <- crop(wrapped_masked, data_extent)
+  unwrapped_masked <- mask(uresample, wrappedmaskclipped)
+  
+  
+  ##############Get color legend scale values##############
+  quantiles <- quantile(unwrapped_masked, probs = c(0.005, 0.995)) ##clip histogram by 0.005%
+  scale_max <- max(abs(quantiles)) #get largest percentile value (unsigned for color scale stretch)
+  scale_min <- scale_max * -1
+  #Get true min max values for unwrapped color scale legend labels
+  min <- round(cellStats(unwrapped_masked, 'min'), digits = 0)
+  max <- round(cellStats(unwrapped_masked, 'max'), digits = 0)
+  unwrapped_map_title <- paste0("Line-of-sight <br> range (cm) <br>", "(Min"," ", min, " ", "Max", " ", max,")") #Create unwrapped legend title
+  unwrapped_masked[unwrapped_masked <= scale_min] <- scale_min #Rescale unwrapped to quantile min max
+  unwrapped_masked[unwrapped_masked >= scale_max] <- scale_max #Rescale unwrapped to quantile min max
+  #########################################
+  #Resample wrapped ifg to avoid non rendering of leaflet map online (error was that the map renders fine locally, but gives red JSON error - Chrome      #Developer mode)
+  wrapped_masked <- aggregate(wrapped_masked, fun=modal, fact=3, na.rm=FALSE)
+  unwrapped_masked <- aggregate(unwrapped_masked, fun=modal, fact=3, na.rm=FALSE) #Added na.rm=FALSE to preserve no data values when resampling
+  #resamp_extent <- raster(nrow=round(nrow(wrapped_masked)/1.1, digits=0), ncol=round(nrow(wrapped_masked)/1.1, digits=0))
+  
+  wrapped_masked <- leaflet::projectRasterForLeaflet(wrapped_masked, "ngb")
+
+
+
+  #Need to stretch scale otherwise leaflet map was clipping data when displaying
+  scale_min1 <- round(scale_min - 1, digits = 0)
+  scale_max1 <- round(scale_max + 1, digits = 0)
+  
+  upal <- colorNumeric("RdYlBu",  domain = c(scale_min1:scale_max1), #Changed unwrapped scale to force the legend to be symetrical, even if e.g. all data is   negative (us6000b9mv)
+                     na.color = "transparent", reverse = TRUE)
+
+
+  #landmask <- aggregate(landmask, fun=modal, fact=4)
+  #plot(landmask)
+  } else {
+    wrapped_masked <- raster(wrapped_link)
+    unwrapped_masked <- raster(unwrapped_link)
+      #Mask unwrapped by wrapped (required to remove additional unwrapped pixels on frame boundary with spurious values)
+    uresample <- resample(unwrapped_masked, wrapped_masked, "ngb") #Resample to same grid
+    data_extent <- extent(uresample)
+    wrappedmaskclipped <- crop(wrapped_masked, data_extent)
+    unwrapped_masked <- mask(uresample, wrappedmaskclipped)
+      ##############Get color legend scale values##############
+    quantiles <- quantile(unwrapped_masked, probs = c(0.005, 0.995)) #Find 1st 99th quartile
+    scale_max <- max(abs(quantiles)) #get largest percentile value (unsigned for color scale stretch)
+    scale_min <- scale_max * -1
+    #Get true min max values for unwrapped color scale legend labels
+    min <- round(cellStats(unwrapped_masked, 'min'), digits = 0)
+    max <- round(cellStats(unwrapped_masked, 'max'), digits = 0)
+    unwrapped_map_title <- paste0("Line-of-sight <br> range (cm) <br>", "(Min"," ", min, " ,", "Max", " ", max,")") #Create unwrapped legend title
+    unwrapped_masked[unwrapped_masked <= scale_min] <- scale_min #Rescale unwrapped to quantile min max
+    unwrapped_masked[unwrapped_masked >= scale_max] <- scale_max #Rescale unwrapped to quantile min max
+    wrapped_masked <- aggregate(wrapped_masked, fun=min, fact=3, na.rm=FALSE)
+    unwrapped_masked <- aggregate(unwrapped_masked, fun=min, fact=3, na.rm=FALSE)
+      #Need to stretch scale otherwise leaflet map was clipping data when displaying
+    scale_min1 <- round(scale_min - 1, digits = 0)
+    scale_max1 <- round(scale_max + 1, digits = 0)
+  
+    upal <- colorNumeric("RdYlBu",  domain = c(scale_min1:scale_max1), #Changed unwrapped scale to force the legend to be symetrical, even if e.g. all data is   negative (us6000b9mv)
+                     na.color = "transparent", reverse = TRUE)
+
+  }
+
+
+###################################################
+################
+} else {
+wrapped_masked <- drast 
+unwrapped_masked <- drast
+landmask <- drast
+#Set min max values for unwrapped color scale legend label to nan
+unwrapped_map_title <- paste0("Line-of-sight <br> range <br> (no data)")
+}  
+
+###############################
+#Functions to get summary stats for testing
+#hist(unwrapped_masked)
+#summary(unwrapped)
+#cellStats(unwrapped, 'min')
+#unwrapped[unwrapped <= -15] <- NA #sets unwrapped values to NA
+#unwrapped[unwrapped >= 15] <- NA
+################################
+
+### Define interferogram colour pal ###
+intercol2 <- c("#6E3A8D", "#A4189D", "#EB7547", "#F6BB05", "#83B635", "#27897A", "#3F6D7D")
+#https://coolors.co/6e3a8d-a4189d-eb7547-f6bb05-83b635-27897a-3f6d7d
+wpal <- colorNumeric("RdYlBu", values(wrapped_masked),
+                     na.color = "transparent", reverse = TRUE)
+#upal <- colorNumeric("RdYlBu", values(unwrapped_masked),
+#                     na.color = "transparent", reverse = TRUE)
+
+
+
+###
+```
+
+**Location Map:**
+```{r plot_map, include=FALSE}
+#Create a leaflet map of the quake
+#Chrome/Edge issues: map will not render if addrasterimage command has project=TRUE and ngb)
+
+if(!http_error(wrapped_link)){
+#Setup map if data has been processed
+m <-leaflet(width = "100%", height = 640, options = leafletOptions(minZoom = 4, maxZoom = 10)) %>% 
+  addTiles(urlTemplate = "", attribution = 'Centre for Observation and Modelling of Earthquakes, Volcanoes and Tectonics (COMET)') %>%
+  addProviderTiles(providers$Esri.WorldImagery, group = "WorldImagery", options = providerTileOptions(opacity = 0.8)) %>%
+  addProviderTiles(providers$CartoDB.Positron, group = "OpenStreetMap")%>%
+  addProviderTiles(providers$NASAGIBS.ViirsEarthAtNight2012, group = "EarthAtNight", options = providerTileOptions(opacity = 0.6)) %>%
+  addMiniMap(pos = "bottomleft",
+             tiles = "CartoDB.Positron")%>% #Force to provider tile to avoid http delivery
+  addMouseCoordinates()%>%
+  addScaleBar(pos = "bottomright")%>%
+  setView(subgroup1$Longitude, subgroup1$Latitude, zoom = 6)%>%
+  setMaxBounds(subgroup1$Longitude - 20, subgroup1$Latitude - 20, subgroup1$Longitude + 20, subgroup1$Latitude + 20)%>%
+  addCircleMarkers(subgroup1$Longitude, subgroup1$Latitude, color = "red", stroke = FALSE, fillOpacity = 1, group = "Epicentre")%>%
+  addPolylines(
+    data = faults,
+    weight = 1,
+    color = "black",
+    group = "Global active faults")%>% 
+  addPolygons(
+    data = aframes_joined,
+    stroke = TRUE,
+    weight = 1.5,
+    color = "black",
+    fillColor = "transparent",
+    highlightOptions = highlightOptions(color = "blue", weight = 2,
+                                        bringToFront = TRUE),
+    label = paste(aframes_joined$frame), labelOptions =
+      labelOptions(noHide = FALSE, textsize='9px', direction = 'top', offset=c(0,-6), textOnly = FALSE),
+    group = "Activated Frames (ascending)")%>%
+  addPolygons(
+    data = dframes_joined,
+    stroke = TRUE,
+    weight = 1.5,
+    color = "black",
+    fillColor = "transparent",
+    highlightOptions = highlightOptions(color = "blue", weight = 2,
+                                        bringToFront = TRUE),
+    label = paste(dframes_joined$frame), labelOptions =
+      labelOptions(noHide = FALSE, textsize='9px', direction = 'top', offset=c(0,-6), textOnly = FALSE),
+    group = "Activated Frames (descending)")%>%
+
+  
+  
+  
+  addRasterImage(wrapped_masked, colors = wpal, opacity = 0.8, group = "Wrapped interferogram",maxBytes = Inf)%>%
+  addRasterImage(unwrapped_masked, colors = upal, opacity = 0.8, group = "Unwrapped interferogram", maxBytes = Inf)%>%
+  addLayersControl(
+    baseGroups = c("OpenStreetMap", "WorldImagery", "EarthAtNight"),
+    overlayGroups = c("Epicentre", "Activated Frames (ascending)", "Activated Frames (descending)", "Wrapped interferogram", "Unwrapped interferogram", "Global active faults"),
+    options = layersControlOptions(collapsed = FALSE))%>%   
+  addLegend("bottomright", pal = wpal, values = values(wrapped_masked),
+           title = "Phase <br> &#960 (radians)", opacity = 1, 
+            group = "Wrapped interferogram")%>%
+  addLegend("bottomleft", pal = upal, values = c(scale_min:scale_max),
+           title = unwrapped_map_title, opacity = 1, 
+            group = "Unwrapped interferogram")%>%
+ #addLogo("https://gws-access.jasmin.ac.uk/public/nceo_geohazards/LiCSAR_products/EQ/wifg_leg.png", 
+  #      position = "bottomright",
+  #      offset.x = 130,
+   #     offset.y = 75,
+   #     width = 65,
+   #     height = 212)%>%
+  hideGroup("Global active faults")%>%
+  hideGroup("Unwrapped interferogram")
+
+} else {
+#Map if no data has been processed (doens't try to add the raster data which would cause an error)
+m_nd <-leaflet(width = "100%", height = 560, options = leafletOptions(minZoom = 4, maxZoom = 10)) %>% 
+  addTiles(urlTemplate = "", attribution = 'Centre for Observation and Modelling of Earthquakes, Volcanoes and Tectonics (COMET)') %>%
+  addProviderTiles(providers$Esri.WorldImagery, group = "WorldImagery", options = providerTileOptions(opacity = 0.8)) %>%
+  addProviderTiles(providers$CartoDB.Positron, group = "OpenStreetMap")%>%
+  addProviderTiles(providers$NASAGIBS.ViirsEarthAtNight2012, group = "EarthAtNight", options = providerTileOptions(opacity = 0.6)) %>%
+  addMiniMap(pos = "bottomleft",
+             tiles = "CartoDB.Positron")%>% #Force to provider tile to avoid http delivery
+  addMouseCoordinates()%>%
+  addScaleBar(pos = "bottomright")%>%
+  setView(subgroup1$Longitude, subgroup1$Latitude, zoom = 6)%>%
+  setMaxBounds(subgroup1$Longitude - 20, subgroup1$Latitude - 20, subgroup1$Longitude + 20, subgroup1$Latitude + 20)%>%
+  addCircleMarkers(subgroup1$Longitude, subgroup1$Latitude, color = "red", stroke = FALSE, fillOpacity = 1, group = "Epicentre")%>%
+  addPolylines(
+    data = faults,
+    weight = 1,
+    color = "black",
+    group = "Global active faults")%>% 
+  addPolygons(
+    data = aframes_joined,
+    stroke = TRUE,
+    weight = 1.5,
+    color = "black",
+    fillColor = "transparent",
+    highlightOptions = highlightOptions(color = "blue", weight = 2,
+                                        bringToFront = TRUE),
+    label = paste(aframes_joined$frame), labelOptions =
+      labelOptions(noHide = FALSE, textsize='9px', direction = 'top', offset=c(0,-6), textOnly = FALSE),
+    group = "Activated Frames (ascending)")%>%
+  addPolygons(
+    data = dframes_joined,
+    stroke = TRUE,
+    weight = 1.5,
+    color = "black",
+    fillColor = "transparent",
+    highlightOptions = highlightOptions(color = "blue", weight = 2,
+                                        bringToFront = TRUE),
+    label = paste(dframes_joined$frame), labelOptions =
+      labelOptions(noHide = FALSE, textsize='9px', direction = 'top', offset=c(0,-6), textOnly = FALSE),
+    group = "Activated Frames (descending)")%>%
+  addLayersControl(
+    baseGroups = c("OpenStreetMap", "WorldImagery", "EarthAtNight"),
+    overlayGroups = c("Epicentre", "Activated Frames (ascending)", "Activated Frames (descending)", "Global active faults"),
+    options = layersControlOptions(collapsed = FALSE))%>%   
+ #addLogo("https://gws-access.jasmin.ac.uk/public/nceo_geohazards/LiCSAR_products/EQ/wifg_leg.png", 
+  #      position = "bottomright",
+  #      offset.x = 130,
+   #     offset.y = 75,
+   #     width = 65,
+   #     height = 212)%>%
+  hideGroup("Global active faults")
+}
+# &#960 #for pi symbol
+```
+
+```{r render_map, echo=FALSE, message = FALSE, warning = FALSE}
+#Render Leaflet map. Code is separate from map code above to avoid color scale warning
+if(!http_error(wrapped_link)){
+m
+} else {
+m_nd
+}  
+```
+
+### Activated Frames:
+Links to past data and metadata (look components). The first possible data acquisition is not guaranteed. If acquired, data will be displayed after processing.
+<div style="width: 100%;">
+<div style="width: 50%; float: left;">
+```{r plot_frame_table1, echo = FALSE}
+#Plot two data tables side by side using a subset of the activated frames
+if(nrow(links2) > 1){
+dt1 <- dplyr::filter(quake_frame_dt, Direction == "A")
+dt1 <- dplyr::select(dt1,-c(Direction))
+dt2 <- dplyr::filter(quake_frame_dt, Direction == "D")
+dt2 <- dplyr::select(dt2,-c(Direction))
+DT::datatable(dt1, rownames = FALSE, colnames = c('Ascending', 'First possible aquisition'), escape = FALSE, options = list(dom = 't', pageLength = 50))#page lenght cntrol max table length
+}
+
+```
+</div>
+
+<div style="width: 50%; float: left;">
+
+```{r plot_frame_table2, echo=FALSE}
+if(nrow(links2) > 1){
+  DT::datatable(dt2, rownames = FALSE, colnames = c('Descending', 'First possible aquisition'), escape = FALSE, options = list(dom = 't', pageLength = 50))
+}
+```
+
+</div>
+<br/><br/>
+
+<div style="width: 100%; float: left;">
+### LiCSAR Data:
+Filter by frame ID, direction, or coseismic/postseismic, and click the hyperlink to download data
+```{r data_table, echo=FALSE}
+#Write the LiCSAR Data table. This renders thumbnail images loaded dynamically rather than embedding images in th html file
+if(nrow(links2) > 2){
+linksep <- dplyr::select(linksep,-c(url, dates, Wrapped.Interferogram1))#Remove unused columns
+
+DT::datatable(linksep, rownames = FALSE, escape = FALSE, filter = 'top',
+                options = list(
+                  columnDefs = list(list(targets = c(3, 4), searchable = FALSE, width = '200px')),
+                  pageLength = 20,
+                    initComplete = JS(
+                      "function(settings, json) {",
+                      "$(this.api().table().header()).css({'background-color': '#7F7F7F', 'color': '#fff'});",
+                      "}")
+  ))
+} else {
+NoData <- paste0('LiCSAR data are shown below once generated')
+kable(NoData, col.names = NULL)
+}  
+
+```
+</div>
+<div style="width: 100%; float: left;">
+
+### Data and funding
+All Sentinel-1 results that are available for download are Derived Works of Copernicus data (2015-2021), subject to the following use conditions: [Terms and conditions for the use and distribution of sentinel data and service information](https://scihub.copernicus.eu/twiki/pub/SciHubWebPortal/TermsConditions/Sentinel_Data_Terms_and_Conditions.pdf). Our interactive maps use [GEM Global active faults data](http://doi.org/10.5281/zenodo.3376300) (modified).
+ 
+This work is funded by the UK Natural Environment Research Council through the Centre for the Observation and Modelling of Earthquakes, Volcanoes and Tectonics (COMET), the “Looking inside the Continents from Space” large grant (NE/K011006/1), and the “Earthquakes without Frontiers” consortium (NE/J01978X/1).
+
+Refer to the [LiCSAR Portal](https://comet.nerc.ac.uk/comet-lics-portal/) for details on acknowledging the use of LiCSAR products.
+
+### Cookies and Privacy Policy:
+This site uses cookies: Please read our Privacy Policy at https://comet.nerc.ac.uk/privacy/
+</div>
