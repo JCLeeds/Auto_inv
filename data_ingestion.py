@@ -118,10 +118,10 @@ class DataBlock:
         Renames output from LiCS step one to add an identifier 
         """
         cwd = os.getcwd()
-        if os.path.isdir(os.path.join(cwd,self.USGS_event.ID +'insar_processing')):
-            os.rename(os.path.join(cwd,"GEOC"),os.path.join(os.path.join(cwd,self.USGS_event.ID +'insar_processing'),"GEOC_"+identifier))
-            os.rename(os.path.join(cwd,"GACOS"),os.path.join(os.path.join(cwd,self.USGS_event.ID +'insar_processing'),"GACOS_"+identifier))
-            return os.path.join(os.path.join(cwd,self.USGS_event.ID +'insar_processing'),"GEOC_"+identifier), os.path.join(os.path.join(cwd,self.USGS_event.ID +'insar_processing'),"GACOS_"+identifier)
+        if os.path.isdir(os.path.join(cwd,self.USGS_event.ID +'_insar_processing')):
+            os.rename(os.path.join(cwd,"GEOC"),os.path.join(os.path.join(cwd,self.USGS_event.ID +'_insar_processing'),"GEOC_"+identifier))
+            os.rename(os.path.join(cwd,"GACOS"),os.path.join(os.path.join(cwd,self.USGS_event.ID +'_insar_processing'),"GACOS_"+identifier))
+            return os.path.join(os.path.join(cwd,self.USGS_event.ID +'_insar_processing'),"GEOC_"+identifier), os.path.join(os.path.join(cwd,self.USGS_event.ID +'_insar_processing'),"GACOS_"+identifier)
         else:
             os.rename(os.path.join(cwd,"GEOC"),os.path.join(cwd,"GEOC_"+identifier))
             os.rename(os.path.join(cwd,"GACOS"),os.path.join(cwd,"GACOS_"+identifier))

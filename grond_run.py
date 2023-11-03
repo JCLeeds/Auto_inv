@@ -184,6 +184,7 @@ class auto_grond:
             file.writelines( yml_lines )
         return
 if __name__ == "__main__":
-    preproc_object = DaN.deformation_and_noise("us6000lfn5",target_down_samp=5000)
+    # # example event ID's us6000jk0t, us6000jqxc, us6000kynh,
+    preproc_object = DaN.deformation_and_noise("us6000jk0t",target_down_samp=1000)
     grond_object = auto_grond(preproc_object)
 
