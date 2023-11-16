@@ -1,5 +1,6 @@
 import scrape_USGS as sUSGS
-import data_ingestion_legacy as DI 
+# import misc_scripts.data_ingestion_legacy as DI
+import data_ingestion as DI 
 import os 
 import numpy as np
 import LiCSBAS03op_GACOS as gacos
@@ -36,7 +37,7 @@ class auto_grond:
         self.data = self.read_data_params()
         self.edit_input_yml_event_title()
         self.edit_input_yml_invt_params(NP=1)
-        self.edit_dec_number(1)
+        self.edit_dec_number(5)
         self.run_grond()
         
     def create_kite_scene(self):
@@ -52,7 +53,7 @@ class auto_grond:
             print("Two mat files presenent please remove one")
         else:
             pass 
-        m2k.main(matfiles[0],os.path.join(self.path_to_data,matfiles[0])[:-3]+"kiteModified",(500,500))
+        m2k.main(matfiles[0],os.path.join(self.path_to_data,matfiles[0])[:-3]+"kiteModified",(100,100))
         return matfiles 
     
     def run_grond(self):
@@ -128,18 +129,30 @@ class auto_grond:
         dip2 = float(params[12].split('=')[-1])
         rake2 = float(params[13].split('=')[-1])
         sq_dim = self.calc_square_start()
+        print("################################################")
+        print(str(int(np.max(self.data['lonlat_m'][0]))))
+        print(str(int(np.max(self.data['lonlat_m'][1]))))
+        print('#####################less mong ####################')
+        print(str(int(np.max(self.data['lonlat_m'][:,0])/2)))
+        print(str(int(np.max(self.data['lonlat_m'][:,1])/2)))
+        print(str(int(np.min(self.data['lonlat_m'][:,0])/2)))
+        print(str(int(np.min(self.data['lonlat_m'][:,1])/2)))
+
         with open(yml_loc,'r') as file:
             yml_lines = file.readlines() 
         for ii in range(len(yml_lines)):
             if 'depth: 2500 .. 7000' in yml_lines[ii]:
                 if (depth - 5000) < 0:
-                       yml_lines[ii] = '    depth: 0 .. ' + str(int(depth+5000)) + '\n'
+                       yml_lines[ii] = '    depth: 0 .. ' + str(int(20000)) + '\n'
                 else: 
-                    yml_lines[ii] = '    depth: ' + str(int(depth-5000)) +  ' .. ' + str(int(depth+5000)) +'\n'
+                    # yml_lines[ii] = '    depth: ' + str(int(depth-5000)) +  ' .. ' + str(int(depth+5000)) +'\n'
+                    yml_lines[ii] = '    depth: ' + str(int(1000)) +  ' .. ' + str(int(20000)) +'\n'
             elif 'east_shift: 0 .. 20000' in yml_lines[ii]:
-                yml_lines[ii] = '    east_shift: 0 .. ' + str(int(np.max(self.data['lonlat_m'][0]))) + '\n'
+                yml_lines[ii] = '    east_shift: ' + str(int(np.min(self.data['lonlat_m'][:,0])/2)) + ' .. ' + str(int(np.max(self.data['lonlat_m'][:,0])/2)) + '\n'
+                #  yml_lines[ii] = '    east_shift: 0 .. ' + str(2000.0) + '\n'
             elif 'north_shift: 0 .. 20000' in yml_lines[ii]:
-                yml_lines[ii] = '    north_shift: 0 .. ' + str(int(np.max(self.data['lonlat_m'][1]))) + '\n'
+                yml_lines[ii] = '    north_shift: ' + str(int(np.min(self.data['lonlat_m'][:,0])/2)) + ' .. ' + str(int(np.max(self.data['lonlat_m'][:,1])/2)) + '\n'
+                # yml_lines[ii] = '    north_shift: 0 .. ' + str(2000.0) + '\n'
             elif 'length: 5000 .. 10000' in yml_lines[ii]:
                 if (sq_dim - 2000) < 0:
                     yml_lines[ii] = '    length: 0 .. ' + str(int(sq_dim+5000)) + '\n'
@@ -181,10 +194,10 @@ class auto_grond:
                     yml_lines[ii] = '    strike: ' + str(int(strike2 - 50)) + ' .. ' + str(int(strike2 + 50)) + '\n'
                  
         with open(yml_loc, 'w') as file:
-            file.writelines( yml_lines )
+            file.writelines(yml_lines)
         return
 if __name__ == "__main__":
     # # example event ID's us6000jk0t, us6000jqxc, us6000kynh,
-    preproc_object = DaN.deformation_and_noise("us6000jk0t",target_down_samp=1000)
+    preproc_object = DaN.deformation_and_noise("us6000jk0t",target_down_samp=4000)
     grond_object = auto_grond(preproc_object)
 

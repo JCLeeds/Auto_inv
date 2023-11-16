@@ -70,6 +70,10 @@ def read_mat_data(filename, import_mv2=False, **kwargs):
     geo_coords = num.asarray(data_mat['lonlat'])
     data.lons = geo_coords[:, 0]
     data.lats = geo_coords[:, 1]
+
+    meter_coords = num.asarray(data_mat['lonlat_m'])
+    data.lons_m = meter_coords[:,0]
+    data.lats_m = meter_coords[:,1]
     print(data.lons)
     print(data.lats)
 
@@ -88,6 +92,7 @@ def read_mat_data(filename, import_mv2=False, **kwargs):
 
     data.heading = heading
     data.covariance = data_mat['cov']
+    data.sill_range_nug = num.asarray(data_mat['sill_range_nug'])
 
     return data
 
@@ -149,8 +154,61 @@ def mat2kite(filename='.', px_size=(1000, 1000), convert_m=True,
         bbox[1], bbox[0],
         bbox[1], bbox[2])
     
-    # lengthN = data.lats.max() - data.lats.min()
-    # lengthE = data.lons.max() - data.lats.min()
+    # lengthN = data.lats_m.max() - data.lats_m.min()
+    # lengthE = data.lons_m.max() - data.lats_m.min()
+
+    # sorted_unqiue_values,lats_index = num.unique(data.lats_m, return_index=True)
+    # sorted_unique_values,lons_index = num.unique(data.lons_m, return_index=True)
+
+    # # spacing_changes_lats = num.diff(data.lats_m)
+    # # spacing_changes_lons = num.diff(data.lons_m) #uncomment if broken 
+
+    spacing_changes_lats = num.diff(data.lats) #.astype(int) # get difference from a[i+1] - a[i]
+    spacing_changes_lons = num.diff(data.lons) #.astype(int)
+  
+    spacing_changes_lats = num.unique(num.abs((spacing_changes_lats[num.nonzero(spacing_changes_lats)]))) # gives sorted unique values of diff 
+    spacing_changes_lons = num.unique(num.abs((spacing_changes_lons[num.nonzero(spacing_changes_lons)]))) 
+    print(spacing_changes_lats)
+    print(spacing_changes_lons)
+    samplespacingN_inner = spacing_changes_lats[0] # smallest unnique value from diff 
+    samplespacingE_inner = spacing_changes_lons[0] # Inside sample_rate 
+    samplespacingN_outer = spacing_changes_lats[1] # outside sample_rate 
+    samplespacingE_outer = spacing_changes_lons[1]
+
+    # samplespacingN =  samplespacingN_outer 
+    # samplespacingE = samplespacingE_outer
+    
+    # # remove code block above if broken 
+
+    
+    # print(spacing_changes_lats)
+    # print(spacing_changes_lons)
+    
+    # # samplespacingN = num.abs(num.min(spacing_changes_lats[num.nonzero(spacing_changes_lats)]))
+    # # samplespacingE = num.abs(num.min(spacing_changes_lons[num.nonzero(spacing_changes_lons)]))
+    
+    # # samplespacingN = num.abs(min(spacing_changes_lats[num.nonzero(spacing_changes_lats)], key=abs))
+    # # samplespacingE = num.abs(min(spacing_changes_lons[num.nonzero(spacing_changes_lons)], key=abs))
+    
+
+
+    # print(lats_index)
+    # print(lons_index)
+
+    # # samplespacingN = data.lats_m[lats_index[1]] - data.lats_m[lats_index[0]]
+    # # samplespacingE = data.lons_m[lons_index[1]] - data.lons_m[lons_index[0]]
+
+    # print(samplespacingE)
+    # print(samplespacingN)
+    # print(lengthE)
+    # print(lengthN)
+    
+
+
+    # bins = (round(lengthN/samplespacingN),
+    #         round(lengthE/samplespacingE))
+    
+    # print(bins)
     
     
     bins = (round(lengthE / px_size[0]),
@@ -167,11 +225,20 @@ def mat2kite(filename='.', px_size=(1000, 1000), convert_m=True,
     log.debug('Processing of LOS angles')
     # data.bin_theta = num.pi/2-data.bin_look_angles
     # Added by me check if correct 
+    width = len(num.unique(data.lons))
+    height = len(num.unique(data.lats))
     data.bin_theta = data.bin_look_angles
+    data.theta = data.look_angles
+    # data.ps_mean_v = num.reshape(data.ps_mean_v,(width,height))
+    # data.theta = num.reshape(data.theta,(width,height))
 
     phi_angle = -data.heading * d2r + num.pi
+    # phi_angle = data.heading*d2r
     if phi_angle > num.pi:
         phi_angle -= 2*num.pi
+
+    # data.phi = num.full_like(data.theta, phi_angle)
+
     data.bin_phi = num.full_like(data.bin_theta, phi_angle)
     data.bin_phi[num.isnan(data.bin_theta)] = num.nan
 
@@ -190,18 +257,54 @@ def mat2kite(filename='.', px_size=(1000, 1000), convert_m=True,
     config.meta.time_master = data.tmin.timestamp()
     config.meta.time_slave = data.tmax.timestamp()
 
+
+    config.quadtree.epsilon = 0.0009
+    config.quadtree.nan_allowed = 1
+    print(float(samplespacingN_outer))
+    print(float(samplespacingN_inner))
+    # config.quadtree.tile_size_max = float(samplespacingN_outer)
+    config.quadtree.tile_size_max = float(samplespacingN_inner)
+    config.quadtree.tile_size_min = float(samplespacingN_inner)
+
     #Attempt to add in covariance matrix
     config.covariance.covariance_matrix = data.covariance
     config.covariance.variance = num.max(data.covariance)
-    config.covariance.spacial_pairs = len(data.covariance)
+    # config.covariance.spacial_pairs = len(data.covariance)
     config.covariance.adaptive_subsampling = False
+    config.covariance.noise_coord = [0.21, 0.86, 0.44, 0.25] # Recent change need to look into this
+    config.covariance.plot = False
+    config.covariance.weight_matrix = num.linalg.inv(data.covariance)
+
+
+    # config.quadtree.
+    # config.quadtree.tile_size_min = 0.01
+    # print(data.sill_range_nug)
+    # print(data.sill_range_nug[0])
+    # print(len(data.sill_range_nug[0]))
+    # config.covariance.model_coefficients = (float(data.sill_range_nug[0][0]),float(data.sill_range_nug[0][1]))
+    # config.covariance.covariance_model = float(data.sill_range_nug[0][0]),float(data.sill_range_nug[0][1])
     
+    print("################################### check here ##########################")
+    print(num.shape(data.bin_ps_mean_v))
+    print(num.shape(data.bin_theta))
+
+    # print(config)
 
     scene = Scene(
         theta=data.bin_theta,
         phi=data.bin_phi,
         displacement=data.bin_ps_mean_v,
         config=config)
+    
+    # scene = Sce
+    # scene.import_date(filename)
+    
+    
+    # scene = Scene(theta=data.theta,
+    #     phi=data.phi,
+    #     displacement=data.ps_mean_v,
+    #     config=config)
+    
 
     if import_var:
         scene.displacement_px_var = data.bin_mean_var
@@ -246,7 +349,7 @@ def main_command_line():
         help='keep mm/a and do not convert to m/a.')
     parser.add_argument(
         '--import-var', action='store_true', dest='import_var',
-        default=False,
+        default=True,
         help='import the variance from mv2.mat, which is added to Kite\'s'
              ' scene covariance matrix.')
     parser.add_argument(

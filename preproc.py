@@ -1,5 +1,5 @@
 import scrape_USGS as sUSGS
-import data_ingestion_legacy as DI 
+import data_ingestion as DI 
 import os 
 import numpy as np
 import LiCSBAS03op_GACOS as gacos
@@ -37,7 +37,8 @@ class deformation_and_noise:
                  scale_factor_clip_mag=0.05,
                  scale_factor_clip_depth=0.075,
                  coherence_mask=0.1,
-                 target_down_samp=2000): 
+                 target_down_samp=2000,
+                 inv_soft='GROND'): 
         self.event_id = event_id
         self.date_primary = date_primary
         self.date_secondary = date_secondary
@@ -51,10 +52,11 @@ class deformation_and_noise:
         self.scale_factor_clip_depth = scale_factor_clip_depth
         self.coherence_mask_thresh = coherence_mask
         self.target_down_samp = target_down_samp
+        self.inv_soft = inv_soft
 
         self.event_object = sUSGS.USGS_event(self.event_id)
         self.data_block = DI.DataBlock(self.event_object)
-        Flag_jasmin_down = False 
+        Flag_jasmin_down = True 
         if Flag_jasmin_down == False:
             if all_coseis == False:
                 geoc_path,gacos_path = self.data_block.pull_data_frame_dates(date_primary,
@@ -69,20 +71,23 @@ class deformation_and_noise:
             gacos_path = "/Users/jcondon/phd/code/auto_inv/us6000jk0t_insar_processing/GACOS_072A_05090_131313"
 
         self.geoc_final_path, self.sill_semi, self.nugget_semi, self.range_semi = self.run_processing_flow(geoc_path,gacos_path)
-        onlyfiles = [f for f in os.listdir(self.geoc_final_path) if os.path.isfile(os.path.join(self.geoc_final_path, f))]
-        matfiles = []
-        for file in onlyfiles:
-            if ".mat" in file:
-                full_path = os.path.join(self.geoc_final_path,file)
-                os.rename(full_path,os.path.join(self.event_object.Grond_insar,file.split('/')[-1]))
-                # matfiles.append(file)
-            else:
-                pass 
+        self.move_final_output()
+        # onlyfiles = [f for f in os.listdir(self.geoc_final_path) if os.path.isfile(os.path.join(self.geoc_final_path, f))]
+        # matfiles = []
+        # for file in onlyfiles:
+        #     if ".mat" in file:
+        #         full_path = os.path.join(self.geoc_final_path,file)
+        #         os.rename(full_path,os.path.join(self.event_object.Grond_insar,file.split('/')[-1]))
+        #         # matfiles.append(file)
+        #     else:
+        #         pass 
         
 
 
 
     def run_processing_flow(self,geoc_path,gacos_path):
+        print("################### Looky here ####################")
+        print(geoc_path)
         geoc_ml_path = self.data_block.create_geoc_ml(geoc_path)
         # # Full mask, gacos, clip
         geoc_masked_path = self.coherence_mask(geoc_ml_path,self.coherence_mask_thresh)
@@ -564,7 +569,27 @@ class deformation_and_noise:
         
         return 
 
-   
+
+    def move_final_output(self):
+        onlyfiles = [f for f in os.listdir(self.geoc_final_path) if os.path.isfile(os.path.join(self.geoc_final_path, f))]
+        matfiles = []
+        npz_files = [] 
+        if self.inv_soft == 'GROND':
+            for file in onlyfiles:
+                if ".mat" in file:
+                    full_path = os.path.join(self.geoc_final_path,file)
+                    os.rename(full_path,os.path.join(self.event_object.Grond_insar,file.split('/')[-1]))
+                    # matfiles.append(file)
+                else:
+                    pass 
+        elif self.inv_soft == "GBIS":
+            for file in onlyfiles:
+                if ".npz" in file:
+                    full_path = os.path.join(self.geoc_final_path,file)
+                    os.rename(full_path,os.path.join(self.event_object.GBIS_location,file.split('/')[-1]))
+                else:
+                    pass 
+        return 
 
 if __name__ == "__main__":
     DaN = deformation_and_noise("us6000jk0t")

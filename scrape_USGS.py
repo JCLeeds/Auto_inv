@@ -65,7 +65,7 @@ class USGS_event:
                         "Depth":None}
         
         for ii in range(len(driver.page_source.split('event-page-header')[1].split('>'))):
-            print((driver.page_source.split('event-page-header')[1].split('>'))[ii])
+            # print((driver.page_source.split('event-page-header')[1].split('>'))[ii])
             if '(UTC)' in (driver.page_source.split('event-page-header')[1].split('>'))[ii]:
                 time_pos_depth['DateTime'] = driver.page_source.split('event-page-header')[1].split('>')[ii].replace('(UTC)</li','')
             if 'S' in (driver.page_source.split('event-page-header')[1].split('>'))[ii] or 'N' in (driver.page_source.split('event-page-header')[1].split('>'))[ii] or 'E' in (driver.page_source.split('event-page-header')[1].split('>'))[ii] or 'W' in (driver.page_source.split('event-page-header')[1].split('>'))[ii]:
@@ -83,10 +83,11 @@ class USGS_event:
                 time_pos_depth['Position'] = array
 
                 # time_pos_depth['Position'] = [driver.page_source.split('event-page-header')[1].split('>')[ii].replace('N','').replace('E</li','').replace('°','').replace('S','').replace('W</li','')
-            if 'depth' in (driver.page_source.split('event-page-header')[1].split('>'))[ii]:
-                time_pos_depth["Depth"] = driver.page_source.split('event-page-header')[1].split('>')[ii].replace('depth</li','').replace('km','')
+            if 'depth' in (driver.page_source.split('event-page-header')[1].split('>'))[ii].lower():
+                time_pos_depth["Depth"] = float(driver.page_source.split('event-page-header')[1].split('>')[ii].replace('depth</li','').replace('km',''))
 
-
+        # print("CHEEEEEEECKEREERS BABBBBY")
+        print(time_pos_depth)
         # Find position of strike dip and rake from javascript tabel in USGS page 
         strike_dip_rake = {"strike":0,
                         "dip":0, 
@@ -95,13 +96,13 @@ class USGS_event:
         dip = []
         rake =[]
         for ii in range(len(driver.page_source.split('<shared-nodal-planes')[1].split("="))):
-            print(driver.page_source.split('<shared-nodal-planes')[1].split("=")[ii])
+            # print(driver.page_source.split('<shared-nodal-planes')[1].split("=")[ii])
             if "strike" in driver.page_source.split('<shared-nodal-planes')[1].split("=")[ii].lower():
-                strike.append(driver.page_source.split('<shared-nodal-planes')[1].split("=")[ii].split('>')[1].replace('</mat-cell','').replace('°',''))
+                strike.append(driver.page_source.split('<shared-nodal-planes')[1].split("=")[ii].split('>')[1].replace('</mat-cell','').replace('°','').replace('</td',''))
             if "rake" in driver.page_source.split('<shared-nodal-planes')[1].split("=")[ii].lower():
-                rake.append(driver.page_source.split('<shared-nodal-planes')[1].split("=")[ii].split('>')[1].replace('</mat-cell','').replace('°',''))
+                rake.append(driver.page_source.split('<shared-nodal-planes')[1].split("=")[ii].split('>')[1].replace('</mat-cell','').replace('°','').replace('</td',''))
             if "dip" in driver.page_source.split('<shared-nodal-planes')[1].split("=")[ii].lower():
-                dip.append(driver.page_source.split('<shared-nodal-planes')[1].split("=")[ii].split('>')[1].replace('</mat-cell','').replace('°',''))
+                dip.append(driver.page_source.split('<shared-nodal-planes')[1].split("=")[ii].split('>')[1].replace('</mat-cell','').replace('°','').replace('</td',''))
         
        
         strike_dip_rake["strike"] =strike[1:3]
@@ -117,19 +118,28 @@ class USGS_event:
                 'Half Duration':None
                 } 
         for ii in range(len(driver.page_source.split('<moment-tensor-info')[1].split("="))):
-            if ii == 8:
+
+            # print(driver.page_source.split('<moment-tensor-info')[1].split("=")[ii])
+            if 'N-m</dd><dt _ngcontent' in driver.page_source.split('<moment-tensor-info')[1].split("=")[ii]:
+                # print(driver.page_source.split('<moment-tensor-info')[1].split("=")[ii])
                 MTdict['moment'] = driver.page_source.split('<moment-tensor-info')[1].split("=")[ii].split('<')[0].replace('"">','').replace('N-m','')
-            if ii == 10:
+            if 'Mww <!----><!----></dd><dt _ngcontent' in driver.page_source.split('<moment-tensor-info')[1].split("=")[ii]:
+                print(driver.page_source.split('<moment-tensor-info')[1].split("=")[ii])
                 MTdict['magnitude'] = driver.page_source.split('<moment-tensor-info')[1].split("=")[ii].split('<')[0].replace('"">','').replace('Mww','')
-            if ii == 12:
+            if 'km' in driver.page_source.split('<moment-tensor-info')[1].split("=")[ii]:
+                print(driver.page_source.split('<moment-tensor-info')[1].split("=")[ii])
                 MTdict['Depth_MT'] = driver.page_source.split('<moment-tensor-info')[1].split("=")[ii].split('<')[0].replace('"">','').replace('km','')
-            if ii == 16:
+            if '%' in driver.page_source.split('<moment-tensor-info')[1].split("=")[ii]:
+                print(driver.page_source.split('<moment-tensor-info')[1].split("=")[ii])
                 MTdict['PercentDC'] = driver.page_source.split('<moment-tensor-info')[1].split("=")[ii].split('<')[0].replace('"">','').replace('%','')
-            if ii == 18:
-                MTdict['Half Duration'] = driver.page_source.split('<moment-tensor-info')[1].split("=")[ii].split('<')[0].replace('"">','').replace('s','')
+            if 'Half Duration' in driver.page_source.split('<moment-tensor-info')[1].split("=")[ii]:
+                print(driver.page_source.split('<moment-tensor-info')[1].split("=")[ii])
+                MTdict['Half Duration'] = driver.page_source.split('<moment-tensor-info')[1].split("=")[ii+1].split('<')[0].replace('"">','').replace('s','')
         
         print(time_pos_depth)
+        print(time_pos_depth['Depth'])
         print(strike_dip_rake)
+        print(MTdict)
         return time_pos_depth, strike_dip_rake, MTdict
     
     def run_event_ifgm_RScrape(self):
@@ -203,6 +213,12 @@ class USGS_event:
         self.Grond_insar = os.path.join(self.specific_event,'insar')
         self.gf_stores = os.path.join(self.Grond_location,'gf_stores')
         self.crust_location = os.path.join(self.gf_stores,'crust2_ib_static')
+
+        #GBIS 
+        self.GBIS_location = os.path.join(cwd,self.ID +"_GBIS_area")
+        self.GBIS_insar_template = os.path.join(self.GBIS_location,self.ID + '.inp')
+
+
        
         if os.path.isdir(self.Grond_location):
             pass
@@ -244,8 +260,6 @@ class USGS_event:
             os.chdir(self.Grond_location)
             sp.call("../download_gf_stores.sh")
             os.chdir(cwd)
-            
-        
         if os.path.isdir(self.crust_location):
             pass 
         else:
@@ -253,6 +267,22 @@ class USGS_event:
             os.chdir(self.gf_stores)
             sp.call("../../download_gf_stores.sh")
             os.chdir(cwd)
+
+        if os.path.isdir(self.GBIS_location):
+            pass 
+        else:
+            os.mkdir(self.GBIS_location)
+
+        if os.path.isfile(self.GBIS_insar_template):
+            pass 
+        else: 
+            shutil.copy("example_GBIS_input.inp",self.GBIS_insar_template)
+        
+
+
+
+
+
         return 
 
 

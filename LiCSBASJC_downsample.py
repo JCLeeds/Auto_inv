@@ -1,5 +1,5 @@
 import scrape_USGS as sUSGS
-import data_ingestion_legacy as DI 
+import data_ingestion as DI 
 import os 
 import numpy as np
 import LiCSBAS03op_GACOS as gacos
@@ -242,7 +242,7 @@ def mask_downsampler(ifgix):
     # np.vstack((tp, fp)).T
     day=[737063]
     if return_cov:
-        np.savez(npzdownout, ph_disp=unw, lonlat=np.vstack((Lon,Lat)).T,la=Inc,heading=np.mean(Heading),cov=cov,day=day,lonlat_m=np.vstack((Lon_m,Lat_m)).T)
+        np.savez(npzdownout, ph_disp=unw, lonlat=np.vstack((Lon,Lat)).T,la=Inc,heading=np.mean(Heading),cov=cov,day=day,lonlat_m=np.vstack((Lon_m,Lat_m)).T,sill_range_nug=[return_cov[0],return_cov[1],return_cov[2]])
     else:
         np.savez(npzdownout, ph_disp=unw, lonlat=np.vstack((Lon,Lat)).T,la=Inc,heading=np.mean(Heading),day=day, lonlat_m=np.vstack((Lon_m,Lat_m)).T)
     

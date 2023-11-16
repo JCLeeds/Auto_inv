@@ -307,7 +307,7 @@ def npz2mat(filepath):
     for f in npzFiles:
         fm = os.path.splitext(f)[0]+'.mat'
         d = np.load(f,allow_pickle=True)
-        savemat(fm, d)
+        savemat(fm, d,oned_as='column')
         print('generated ', fm, 'from', f)
     return 
 
