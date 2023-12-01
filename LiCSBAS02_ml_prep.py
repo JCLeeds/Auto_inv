@@ -466,6 +466,8 @@ def convert_wrapper(i):
     ### Make png
     unwpngfile = os.path.join(ifgdir1, ifgd+'.unw.png')
     plot_lib.make_im_png(np.angle(np.exp(1j*unw/cycle)*cycle), unwpngfile, cmap_wrap, ifgd+'.unw', vmin=-np.pi, vmax=np.pi, cbar=False)
+    ccpngfile = os.path.join(ifgdir1,ifgd+'.cc.png')
+    plot_lib.make_im_png(cc,ccpngfile, 'gray', (ifgd+".cc") ,vmin=np.min(cc),vmax=np.max(cc),cbar=True)
     
     return 0
 

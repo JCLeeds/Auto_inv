@@ -705,6 +705,8 @@ def calc_cov(Lon, Lat, ifgm, sill_cov,range_cov,nugget_cov):
     print(sill_cov)
     print(range_cov)
     print(nugget_cov)
-    cov=sill_cov*np.exp(-dist_matrix/range_cov)+nugget_cov*np.eye(len(Lon))
+    cov=sill_cov*np.exp(-dist_matrix/range_cov)
+    cov_shape = np.shape(cov)
+    cov = cov + nugget_cov*np.eye(cov_shape[0],M=cov_shape[1])
     print(cov[0:100])
     return cov 

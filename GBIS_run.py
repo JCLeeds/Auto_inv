@@ -35,10 +35,11 @@ import subprocess as sp
 import os
 import h5py
 from scipy import io
+from scipy.io import loadmat
 
 
 class auto_GBIS:
-    def __init__(self,deformation_and_noise_object,GBIS_loc):
+    def __init__(self,deformation_and_noise_object,GBIS_loc,NP=1):
         self.DaN_object = deformation_and_noise_object
         self.path_to_data = self.DaN_object.event_object.GBIS_location
        
@@ -49,14 +50,17 @@ class auto_GBIS:
         self.eng = self.start_matlab_set_path()
 
         self.estimate_length = self.calc_square_start()
+        self.max_dist = self.maximum_dist()
         self.boundingbox = self.calc_boundingbox()
-        self.edit_input_priors()
-        self.gbisrun()
+        self.edit_input_priors(NP=NP)
+        self.opt_model, self.GBIS_lon, self.GBIS_lat = self.gbisrun()
+        self.plot_locations()
       
 
     def convert_GBIS_Mat_format(self):
         self.data = np.load(self.npzfiles[0])
         print(self.data.files)
+        # LiCS_lib.npz2mat(self.npzfiles[0])
         
         Phase = self.data['ph_disp'].T
         Lat = self.data['lonlat'][:,1].T
@@ -119,6 +123,11 @@ class auto_GBIS:
 
             print("Two mat files presenent please remove one")
         return npzfiles
+
+    def maximum_dist(self):
+       max_dist = (np.sqrt((np.max(self.data['lonlat_m'][:,0]) - np.min(self.data['lonlat_m'][:,0])) ** 2
+                        + (np.max(self.data['lonlat_m'][:,1]) - np.max(self.data['lonlat_m'][:,1])) ** 2))
+       return max_dist
     
     def edit_input_priors(self,NP=1):
         input_loc = self.DaN_object.event_object.GBIS_insar_template
@@ -138,10 +147,44 @@ class auto_GBIS:
         strike2 = float(params[11].split('=')[-1])
         dip2 = float(params[12].split('=')[-1])
         rake2 = float(params[13].split('=')[-1])
+        # if -dip1 - 30 < -90:
+        #     dip1 = 0 
+        dip1_lower = -dip1*1.5
+        dip2_lower = -dip2*1.5 
+        if dip1_lower < -90:
+            dip1_lower = -90 
+        if dip2_lower < -90:
+            dip2_lower = -90
+
+        strike_upper1 = strike1 + 90   
+        strike_upper2 = strike2 + 90
+        strike_lower1 = strike1 - 90 
+        strike_lower2 = strike2 - 90 
+
+        if strike_upper1 > 360:
+            strike_upper1 = strike_upper1 - 360 
+        if strike_upper2 > 360:
+            strike_upper2 = strike_upper2 - 360
+
+        if strike_lower1 < 0: 
+            strike_lower1 = 360 - strike_lower1 
+        if strike_lower2 < 0:
+            strike_lower2 = 360 - strike_lower2
+
+        
+         
+        
+        
+
+
         # sq_dim = self.calc_square_start()
         print("################################################")
         print(str(int(np.max(self.data['lonlat_m'][:,0]))))
         print(str(int(np.max(self.data['lonlat_m'][:,1]))))
+        print(self.sill_range_nug)
+
+        print(len(self.data['lonlat_m'][:,1]))
+        print(np.shape(self.data['lonlat_m']))
         print(self.GBIS_mat_file_location)
         print(input_loc)
 
@@ -149,7 +192,7 @@ class auto_GBIS:
     
             lines = file.readlines() 
         for ii in range(len(lines)):
-            print(lines[ii])
+            # print(lines[ii])
             if 'insar{insarID}.dataPath' in lines[ii]:
                 print('Made it to this line')
                 lines[ii] = 'insar{insarID}.dataPath = ' +' \'' +self.GBIS_mat_file_location + '\'' +';'
@@ -172,11 +215,11 @@ class auto_GBIS:
                             
             elif 'modelInput.fault.start' in lines[ii] and NP==1:
                 lines[ii] = ('modelInput.fault.start=['
-                            + str(self.estimate_length) + ';  ' 
-                            + str(self.estimate_length) + ';  '
-                            + str(depth) + ';  '
-                            + str(dip1) + ';  '
-                            + str(strike1) + ';  '
+                            + str(int(self.estimate_length)) + ';  ' 
+                            + str(int(self.estimate_length)) + ';  '
+                            + str(int(depth)) + ';  '
+                            + str(int(-dip1)) + ';  '
+                            + str(int(strike1)) + ';  '
                             + str(0) + ';  '
                             + str(0) + ';  '
                             + str(1.0) + ';  '
@@ -185,11 +228,11 @@ class auto_GBIS:
                             )
             elif 'modelInput.fault.start' in lines[ii] and NP==2:
                 lines[ii] = ('modelInput.fault.start=['
-                            + str(self.estimate_length) + ';  ' 
-                            + str(self.estimate_length) + ';  '
-                            + str(depth) + ';  '
-                            + str(dip2) + ';  '
-                            + str(strike2) + ';  '
+                            + str(int(self.estimate_length)) + ';  ' 
+                            + str(int(self.estimate_length)) + ';  '
+                            + str(int(depth)) + ';  '
+                            + str(int(-dip2)) + ';  '
+                            + str(int(strike2)) + ';  '
                             + str(0) + ';  '
                             + str(0) + ';  '
                             + str(1.0) + ';  '
@@ -201,55 +244,71 @@ class auto_GBIS:
             elif 'modelInput.fault.step' in lines[ii] and NP==2:
                 pass 
             elif 'modelInput.fault.lower' in lines[ii] and NP==1:
+                if strike_lower1 < strike_upper1:
+                    strike_bound = strike_lower1
+                else:
+                    strike_bound = strike_upper1
                 lines[ii] = ('modelInput.fault.lower=['
-                            + str(self.estimate_length*0.25) + ';  ' 
-                            + str(self.estimate_length*0.25) + ';  '
-                            + str(depth*0.25) + ';  '
-                            + str(dip1*0.25) + ';  '
-                            + str(strike1*0.25) + ';  '
-                            + str(int(np.min(self.data['lonlat_m'][:,0]))) + ';  '
-                            + str(int(np.min(self.data['lonlat_m'][:,0]))) + ';  '
+                            + str(int(self.estimate_length*0.9)) + ';  ' 
+                            + str(int(self.estimate_length*0.9)) + ';  '
+                            + str(int(depth*0.25)) + ';  '
+                            + str(dip1_lower) + ';  '
+                            + str(int(strike_bound)) + ';  '
+                            + str(int(-self.max_dist/4)) + ';  '
+                            + str(int(-self.max_dist/4)) + ';  '
                             + str(1.0) + ';  '
                             + str(1.0) + '];'
                             +'\n'
                             )
             elif 'modelInput.fault.lower' in lines[ii] and NP==2:
+                if strike_lower2 < strike_upper2:
+                    strike_bound = strike_lower2
+                else:
+                    strike_bound = strike_upper2
                 lines[ii] = ('modelInput.fault.lower=['
-                            + str(self.estimate_length*0.25) + ';  ' 
-                            + str(self.estimate_length*0.25) + ';  '
-                            + str(depth*0.25) + ';  '
-                            + str(dip2*0.25) + ';  '
-                            + str(strike2*0.25) + ';  '
-                            + str(int(np.min(self.data['lonlat_m'][:,0]))) + ';  '
-                            + str(int(np.min(self.data['lonlat_m'][:,0]))) + ';  '
+                            + str(int(self.estimate_length*0.9)) + ';  ' 
+                            + str(int(self.estimate_length*0.9)) + ';  '
+                            + str(int(depth*0.25)) + ';  '
+                            + str(int(dip2_lower)) + ';  '
+                            + str(int(strike_bound)) + ';  '
+                            + str(int(-self.max_dist/4)) + ';  '
+                            + str(int(-self.max_dist/4)) + ';  '
                             + str(1.0) + ';  '
                             + str(1.0) + '];'
                             '\n'
                             )
             elif 'modelInput.fault.upper' in lines[ii] and NP==1:
+                if strike_lower1 > strike_upper1:
+                    strike_bound = strike_lower1
+                else:
+                    strike_bound = strike_upper1
                 lines[ii] = ('modelInput.fault.upper=['
-                            + str(self.estimate_length*2) + ';  ' 
-                            + str(self.estimate_length*2) + ';  '
-                            + str(depth) + ';  '
-                            + str(dip1) + ';  '
-                            + str(strike1) + ';  '
-                            + str(int(np.max(self.data['lonlat_m'][:,0]))) + ';  '
-                            + str(int(np.max(self.data['lonlat_m'][:,0]))) + ';  '
-                            + str(1.0) + ';  '
-                            + str(1.0) + '];'
+                            + str(int(self.estimate_length*1.5)) + ';  ' 
+                            + str(int(self.estimate_length*1.5)) + ';  '
+                            + str(int(depth*2)) + ';  '
+                            + str(int(-dip1*0.25)) + ';  '
+                            + str(int(strike_bound)) + ';  '
+                            + str(int(self.max_dist/4)) + ';  '
+                            + str(int(self.max_dist/4)) + ';  '
+                            + str(10.0) + ';  '
+                            + str(10.0) + '];'
                             '\n'
                             ) 
             elif 'modelInput.fault.upper' in lines[ii] and NP==2:
+                if strike_lower2 > strike_upper2:
+                    strike_bound = strike_lower2
+                else:
+                    strike_bound = strike_upper2
                 lines[ii] = ('modelInput.fault.upper=['
-                            + str(self.estimate_length*2) + ';  ' 
-                            + str(self.estimate_length*2) + ';  '
-                            + str(depth) + ';  '
-                            + str(dip1) + ';  '
-                            + str(strike1) + ';  '
-                            + str(int(np.max(self.data['lonlat_m'][:,0]))) + ';  '
-                            + str(int(np.max(self.data['lonlat_m'][:,0]))) + ';  '
-                            + str(1.0) + ';  '
-                            + str(1.0) + '];'
+                            + str(int(self.estimate_length*1.5)) + ';  ' 
+                            + str(int(self.estimate_length*1.5)) + ';  '
+                            + str(int(depth*1.75)) + ';  '
+                            + str(int(-dip2*0.25)) + ';  '
+                            + str(int(strike_bound)) + ';  '
+                            + str(int(self.max_dist/4)) + ';  '
+                            + str(int(self.max_dist/4)) + ';  '
+                            + str(10.0) + ';  '
+                            + str(10.0) + '];'
                             '\n'
                             ) 
         with open(input_loc, 'w') as file:
@@ -259,17 +318,50 @@ class auto_GBIS:
 
     def gbisrun(self):
         cwd = os.getcwd()
-        os.chdir(self.DaN_object.event_object.GBIS_location)
-        self.eng.GBISrun(self.DaN_object.event_object.GBIS_insar_template,1,'n','F','1e5','n','n','n',nargout=0)
+        # os.chdir(self.DaN_object.event_object.GBIS_location)
+        self.eng.GBISrun(self.DaN_object.event_object.GBIS_insar_template,1,'n','F',1e5,'n','n','n',nargout=0)
         self.outputdir= "./" + self.DaN_object.event_object.GBIS_insar_template.split('/')[-1][:-4] + "/invert_1_F"
         self.outputfile = self.outputdir + "/" + "invert_1_F.mat"
-        self.eng.generateFinalReport(self.outputfile,1e4,nargout=0)
-        os.chdir(cwd)
-  
+        output_matrix = loadmat(self.outputfile,squeeze_me=True)
+        opt_model = output_matrix['invResults'][()].item()[-1]
+        self.eng.generateFinalReport(self.outputfile,3e4,nargout=0)
+        Lon_GBIS, Lat_GBIS = self.eng.convert_location_output(self.GBIS_mat_file_location,self.outputfile,nargout=2)
+        print(Lon_GBIS,Lat_GBIS)
+        # os.chdir(cwd)
+        return opt_model, Lon_GBIS, Lat_GBIS
+    
+    def plot_locations(self):
+        if os.path.isdir(self.path_to_data+"/locations"):
+            print('Made it here its a directory')
+            pass
+        else:
+            print('made it here')
+            os.mkdir(self.path_to_data+"/locations/")
+            print('created directory')
+
+        locations= self.path_to_data + "/locations/locations"
+        f = open(locations,"a")
+        f.write(str(self.GBIS_lon) + " " + str(self.GBIS_lat) + " GBIS" + "\n")
+        f.write(str(self.DaN_object.event_object.time_pos_depth['Position'][1]) + " " + str(self.DaN_object.event_object.time_pos_depth['Position'][0]) + " USGS")
+        f.close()
+        print('file has been made')
+        dirs_with_ifgms, meta_file_paths = self.DaN_object.data_block.get_path_names(self.DaN_object.geoc_path)
+        onlyfiles = [f for f in os.listdir(dirs_with_ifgms[0]) if os.path.isfile(os.path.join(dirs_with_ifgms[0], f))]
+        tifs = []
+        for file in onlyfiles:
+            if ".tif" in file and '.unw' in file:
+                full_path = os.path.join(dirs_with_ifgms[0],file)
+                tifs.append(full_path)
+            else:
+                pass 
+        sp.check_call(["./plot_locations.sh",tifs[0],locations,self.path_to_data])
+    
 if __name__ == "__main__":
     # # example event ID's us6000jk0t, us6000jqxc, us6000kynh,
-    preproc_object = DaN.deformation_and_noise("us6000jk0t",target_down_samp=500,inv_soft='GBIS')
-    grond_object = auto_GBIS(preproc_object,'/Users/jcondon/phd/code/auto_inv/GBIS.location')
+    # preproc_object = DaN.deformation_and_noise("us6000jk0t",target_down_samp=1500,inv_soft='GBIS',single_ifgm=False,date_primary=20230108,date_secondary=20230213,stack=True)
+    preproc_object = DaN.deformation_and_noise("us6000ldpg",target_down_samp=1500,inv_soft='GBIS',date_primary=20230926,date_secondary=20231008,frame='020D_05533_131313')
+    # preproc_object = DaN.deformation_and_noise("us6000jk0t",target_down_samp=1500,inv_soft='GBIS')
+    grond_object = auto_GBIS(preproc_object,'/Users/jcondon/phd/code/auto_inv/GBIS.location',NP=2)
 
 
 
