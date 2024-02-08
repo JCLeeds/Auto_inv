@@ -80,7 +80,7 @@ class Usage(Exception):
 
 
 #%%
-def main(argv=None,auto=None):
+def main(argv=None,auto=None,index_clip=False):
    
     #%% Check argv
     if argv == None:
@@ -111,7 +111,10 @@ def main(argv=None,auto=None):
     if auto:
         in_dir = auto[0]
         out_dir = auto[1]
-        range_geo_str = auto[2]
+        if index_clip  == False:
+            range_geo_str = auto[2]
+        elif index_clip == True:
+            range_str = auto[2]
     else:
     #%% Read options
         try:

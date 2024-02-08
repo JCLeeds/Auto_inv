@@ -47,6 +47,7 @@ from matplotlib.colors import LinearSegmentedColormap as LSC
 from matplotlib import pyplot as plt
 from sklearn.cluster import DBSCAN 
 import matplotlib.path as path
+import scipy
 
 
 #%%
@@ -674,32 +675,15 @@ def circle_mask(center,radius,lon,lat):
 
 
 def calc_cov(Lon, Lat, ifgm, sill_cov,range_cov,nugget_cov):
-    # print(np.shape(ifgm))
-    # X1, X2 = np.meshgrid(Lon, Lon)
-    # Y1, Y2 = np.meshgrid(Lat,Lat)
 
-
-    # ifgm.reshape((len(Lon),len(Lat)))
-    # XX = XX.flatten()
-    # YY = YY.flatten()
-    # print(np.shape(XX))
-    # xdist = Lon[~np.isnan(ifgm)]
-    # ydist = Lat[~np.isnan(ifgm)]
     xdist = Lon
     ydist = Lat
     nb_nans = len(ifgm[~np.isnan(ifgm)])
     print(nb_nans)
     distances = np.array(list(map(list, zip(xdist, ydist))))
-    # model = self.getModelFunction()
-
-    # coords = self.quadtree.leaf_focal_points_meter
     dist_matrix = np.sqrt(
         (distances[:, 0] - distances[:, 0, np.newaxis])**2
         + (distances[:, 1] - distances[:, 1, np.newaxis])**2)
-
-   
-    # all_norm_dist = np.linalg.norm((distances-distances[:,None]),axis=-1)
-
     print("############################COV CALC#####################################")
     print(dist_matrix[0:100])
     print(sill_cov)
@@ -710,3 +694,16 @@ def calc_cov(Lon, Lat, ifgm, sill_cov,range_cov,nugget_cov):
     cov = cov + nugget_cov*np.eye(cov_shape[0],M=cov_shape[1])
     print(cov[0:100])
     return cov 
+
+
+def invert_plane(ifgm, lat, lon):
+    indexs_to_remove_for_decimation = np.random.randint(low=0,high=len(ifgm),size=int(len(ifgm)*0.9)) # change to smaller value decimation to harsh this needs to be sped up 
+    ifgm = ifgm[~indexs_to_remove_for_decimation]
+    lat = lat[~indexs_to_remove_for_decimation]
+    lon = lon[~indexs_to_remove_for_decimation]   
+    array_of_one = np.zeros(np.shape(lat)) + 1
+    G = list(zip(lat**2,lon**2,lat*lon,lat,lon,array_of_one))
+    d = ifgm  
+    m = np.linalg.inv((np.transpose(G) @ G)) @ np.transpose(G) @ (d) 
+    ifgm_ramp_removed = ifgm - (m[0]*(lat**2) + m[1]*(lon**2) + m[2]*lat*lon + m[3]*lat + m[4]*lon +m[5]) 
+    return ifgm_ramp_removed, lat , lon

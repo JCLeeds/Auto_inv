@@ -459,13 +459,14 @@ def convert_wrapper(i):
         cc = tools_lib.multilook(cc, nlook, nlook, n_valid_thre)
 
     ### Output float
+    # unw = -unw/4/np.pi*0.0555 # Test line remove I think this converts to meters?
     unw.tofile(unwfile)
     cc = cc.astype(np.uint8) ##nan->0, max255, auto-floored
     cc.tofile(ccfile)
 
     ### Make png
     unwpngfile = os.path.join(ifgdir1, ifgd+'.unw.png')
-    plot_lib.make_im_png(np.angle(np.exp(1j*unw/cycle)*cycle), unwpngfile, cmap_wrap, ifgd+'.unw', vmin=-np.pi, vmax=np.pi, cbar=False)
+    plot_lib.make_im_png(np.angle(np.exp(1j*unw/cycle)*cycle), unwpngfile, cmap_wrap, ifgd+'.unw', vmin=-np.pi, vmax=np.pi, cbar=True)
     ccpngfile = os.path.join(ifgdir1,ifgd+'.cc.png')
     plot_lib.make_im_png(cc,ccpngfile, 'gray', (ifgd+".cc") ,vmin=np.min(cc),vmax=np.max(cc),cbar=True)
     

@@ -39,41 +39,48 @@ from scipy.io import loadmat
 
 
 class auto_GBIS:
-    def __init__(self,deformation_and_noise_object,GBIS_loc,NP=1):
+    def __init__(self,deformation_and_noise_object,GBIS_loc,NP=1,number_trials=1e6):
         self.DaN_object = deformation_and_noise_object
         self.path_to_data = self.DaN_object.event_object.GBIS_location
+        self.number_trials = number_trials
        
         self.npzfiles = self.get_data_location()
-        self.GBIS_mat_file_location, self.sill_range_nug = self.convert_GBIS_Mat_format()
-
+        self.GBIS_mat_file_location, self.sill_nug_range = self.convert_GBIS_Mat_format()
+        self.show_noise_params()
         self.path_to_GBIS = self.read_input(GBIS_loc)
         self.eng = self.start_matlab_set_path()
 
         self.estimate_length = self.calc_square_start()
         self.max_dist = self.maximum_dist()
         self.boundingbox = self.calc_boundingbox()
+        self.create_insar_input()
         self.edit_input_priors(NP=NP)
         self.opt_model, self.GBIS_lon, self.GBIS_lat = self.gbisrun()
         self.plot_locations()
       
 
     def convert_GBIS_Mat_format(self):
-        self.data = np.load(self.npzfiles[0])
-        print(self.data.files)
-        # LiCS_lib.npz2mat(self.npzfiles[0])
-        
-        Phase = self.data['ph_disp'].T
-        Lat = self.data['lonlat'][:,1].T
-        Lon = self.data['lonlat'][:,0].T
-        Inc = self.data['la'].T
-        Heading = self.data['heading'].T
-        print(np.shape(Phase))
-        sill_range_nug = self.data['sill_range_nug']
-        tmpnpz_gbis_format =self.npzfiles[0][:-3] + 'GBIS.npz'
-        np.savez(tmpnpz_gbis_format, Phase=Phase,Lat=Lat,Lon=Lon,Inc=Inc,Heading=Heading)
-        LiCS_lib.npz2mat(tmpnpz_gbis_format)
-        GBIS_mat_file_location = tmpnpz_gbis_format[:-3] +'mat'
-        return GBIS_mat_file_location ,sill_range_nug
+        GBIS_mat_file_location = []
+        sill_nug_range = []
+        self.data = [] 
+        for ii in range(len(self.npzfiles)):
+            one_field = np.load(self.npzfiles[ii])
+            print(list(one_field.keys()))
+            # print(self.data.files)
+            # LiCS_lib.npz2mat(self.npzfiles[0])
+            Phase = one_field['ph_disp'].T
+            Lat = one_field['lonlat'][:,1].T
+            Lon = one_field['lonlat'][:,0].T
+            Inc = one_field['la'].T
+            Heading = one_field['heading'].T
+            print(np.shape(Phase))
+            sill_nug_range.append(list(one_field['sill_nugget_range'].T))
+            tmpnpz_gbis_format =self.npzfiles[ii][:-3] + 'GBIS.npz'
+            np.savez(tmpnpz_gbis_format, Phase=Phase,Lat=Lat,Lon=Lon,Inc=Inc,Heading=Heading)
+            LiCS_lib.npz2mat(tmpnpz_gbis_format)
+            GBIS_mat_file_location.append(tmpnpz_gbis_format[:-3] +'mat')
+            self.data.append(one_field)
+        return GBIS_mat_file_location , sill_nug_range
      
 
     def read_input(self,GBIS_loc):
@@ -101,11 +108,17 @@ class auto_GBIS:
         return L
     
     def calc_boundingbox(self):
-        max_lat = np.max(self.data['lonlat'][:,1])
-        min_lat = np.min(self.data['lonlat'][:,1])
-        max_lon = np.max(self.data['lonlat'][:,0])
-        min_lon = np.min(self.data['lonlat'][:,0])
-        boundingbox = [min_lon,max_lat,max_lon,min_lat]
+        max_lats = [] 
+        min_lats = [] 
+        max_lons = [] 
+        min_lons = [] 
+        for ii in range(len(self.data)):
+            max_lats.append(np.max(self.data[ii]['lonlat'][:,1]))
+            min_lats.append(np.min(self.data[ii]['lonlat'][:,1]))
+            max_lons.append(np.max(self.data[ii]['lonlat'][:,0]))
+            min_lons.append(np.min(self.data[ii]['lonlat'][:,0]))
+        
+        boundingbox = [np.min(min_lons),np.max(max_lats),np.max(max_lons),np.min(min_lats)]
         #    referance = [np.median(lics_mat['Lon']), np.median(lics_mat['Lat'])]
         return boundingbox
 
@@ -119,16 +132,96 @@ class auto_GBIS:
                 npzfiles.append(full_path)
             else:
                 pass 
-        if len(npzfiles) > 1:
+        # if len(npzfiles) > 1:
 
-            print("Two mat files presenent please remove one")
+        #     print("Two mat files presenent please remove one")
         return npzfiles
 
     def maximum_dist(self):
-       max_dist = (np.sqrt((np.max(self.data['lonlat_m'][:,0]) - np.min(self.data['lonlat_m'][:,0])) ** 2
-                        + (np.max(self.data['lonlat_m'][:,1]) - np.max(self.data['lonlat_m'][:,1])) ** 2))
-       return max_dist
+        max_dists = [] 
+        for ii in range(len(self.data)):
+            max_dists.append((np.sqrt((np.max(self.data[ii]['lonlat_m'][:,0]) - np.min(self.data[ii]['lonlat_m'][:,0])) ** 2
+                                + (np.max(self.data[ii]['lonlat_m'][:,1]) - np.max(self.data[ii]['lonlat_m'][:,1])) ** 2)))
+        max_dist = np.mean(max_dists)
+            
+        return max_dist
     
+    def show_noise_params(self):
+        label = []
+        for ii in range(len(self.npzfiles)):
+            label.append(self.npzfiles[ii].split('/')[-1])
+        sills = [] 
+        ranges = [] 
+        nugs = []
+        for array in self.sill_nug_range:
+            sills.append(array[0])
+            nugs.append(array[1])
+            ranges.append(array[2])
+        print(sills)
+        print(ranges)
+        print(nugs)
+        print(self.sill_nug_range)
+
+        print(np.shape(self.sill_nug_range))
+        plt.figure()
+        plt.scatter(label,sills)
+        plt.title('Sill comparisons')
+        plt.savefig(os.path.join(self.path_to_data,'File_sill_comp.png'))
+
+        plt.figure()
+        plt.title('Range comparison ')
+        plt.scatter(label,ranges)
+        plt.savefig(os.path.join(self.path_to_data,'File_range_comp.png'))
+
+        plt.figure()
+        plt.title('Nugget comparison ')
+        plt.scatter(label,nugs)
+        plt.savefig(os.path.join(self.path_to_data,'File_nug_comp.png'))
+        return 
+
+    def create_insar_input(self):
+        input_loc = self.DaN_object.event_object.GBIS_insar_template
+
+        # insarID = 1;                            % InSAR dataset unique identifier
+        # insar{insarID}.dataPath ='input_unwrapped_interferogram.mat'
+        # insar{insarID}.wavelength = 0.056;      % Wavelength in m (e.g., Envisat/ERS/Sentinel: 0.056; CSK/TSX/TDX: 0.031)
+        # insar{insarID}.constOffset = 'y';       % Remove constant offset? 'y' or 'n'
+        # insar{insarID}.rampFlag = 'y';          % Remove linear ramp? 'y' or 'n'
+        # insar{insarID}.sillExp =2.2925882414169513e-05
+        # insar{insarID}.range =10185.22042427217
+        # insar{insarID}.nugget =2.991728653751577e-06
+        # insar{insarID}.quadtreeThresh = 0; % Quadtree threshold variance (e.g., 0.01^2 m or 1e-04 m)
+        # with open(input_loc,'r') as file:
+
+        with open(input_loc,'r') as file:
+            lines = file.readlines() 
+        #     file.readlines() 
+        # write = [] 
+        for ii in range(len(lines)):
+            if any('insarID' in x for x in lines[ii]):
+                lines[ii] = ' '
+            else:
+                pass 
+        
+          
+        strings_to_write = [] 
+        for ii in range(len(self.data)):
+            strings_to_write.append('insarID = ' + str(ii + 1) + ';' + '\n' +
+                                'insar{insarID}.dataPath = ' +' \'' + self.GBIS_mat_file_location[ii] + '\'' +';' + '\n' + 
+                                'insar{insarID}.wavelength = 0.056;' + '\n' +
+                                'insar{insarID}.constOffset = \'n\';' + '\n' +
+                                'insar{insarID}.rampFlag = \'y\';' +   '\n' +
+                                'insar{insarID}.sillExp =' + str(self.sill_nug_range[ii][0]) +';' + '\n' +
+                                'insar{insarID}.range =' + str(self.sill_nug_range[ii][2]) +';' + '\n' +
+                                'insar{insarID}.nugget=' + str(self.sill_nug_range[ii][1]) +';' + '\n'+ 
+                                'insar{insarID}.quadtreeThresh = 0;' +'\n')
+            
+        with open(input_loc, 'w') as file:
+            file.writelines(lines)
+            file.writelines(strings_to_write)
+    
+        return 
+
     def edit_input_priors(self,NP=1):
         input_loc = self.DaN_object.event_object.GBIS_insar_template
         with open(self.DaN_object.event_object.event_file_path,'r') as file:
@@ -151,10 +244,18 @@ class auto_GBIS:
         #     dip1 = 0 
         dip1_lower = -dip1*1.5
         dip2_lower = -dip2*1.5 
-        if dip1_lower < -90:
-            dip1_lower = -90 
-        if dip2_lower < -90:
-            dip2_lower = -90
+        if dip1_lower < -89.9:
+            dip1_lower = -89.9 
+        if dip2_lower < -89.9:
+            dip2_lower = -89.9
+
+        #Convert from USGS to GBIS convention 
+            strike1 = strike1 + 180 
+            strike2 = strike2 + 180 
+            if strike1 > 360: 
+                strike1 = strike1 - 360 
+            if strike2 > 360:
+                strike2 = strike2 - 360 
 
         strike_upper1 = strike1 + 90   
         strike_upper2 = strike2 + 90
@@ -171,38 +272,22 @@ class auto_GBIS:
         if strike_lower2 < 0:
             strike_lower2 = 360 - strike_lower2
 
-        
-         
-        
-        
-
-
         # sq_dim = self.calc_square_start()
         print("################################################")
-        print(str(int(np.max(self.data['lonlat_m'][:,0]))))
-        print(str(int(np.max(self.data['lonlat_m'][:,1]))))
-        print(self.sill_range_nug)
+        # print(str(int(np.max(self.data['lonlat_m'][:,0]))))
+        # print(str(int(np.max(self.data['lonlat_m'][:,1]))))
+        # print(self.sill_range_nug)
 
-        print(len(self.data['lonlat_m'][:,1]))
-        print(np.shape(self.data['lonlat_m']))
+        # print(len(self.data['lonlat_m'][:,1]))
+        # print(np.shape(self.data['lonlat_m']))
         print(self.GBIS_mat_file_location)
         print(input_loc)
 
         with open(input_loc,'r') as file:
-    
             lines = file.readlines() 
         for ii in range(len(lines)):
             # print(lines[ii])
-            if 'insar{insarID}.dataPath' in lines[ii]:
-                print('Made it to this line')
-                lines[ii] = 'insar{insarID}.dataPath = ' +' \'' +self.GBIS_mat_file_location + '\'' +';'
-            elif 'insar{insarID}.sillExp' in lines[ii]:
-                lines[ii] = 'insar{insarID}.sillExp =' + str(self.sill_range_nug[0]) +';'
-            elif 'insar{insarID}.range' in lines[ii]:
-                lines[ii] =  'insar{insarID}.range=' + str(self.sill_range_nug[1]) +';'
-            elif 'insar{insarID}.nugget' in lines[ii]:
-                lines[ii] =  'insar{insarID}.nugget=' + str(self.sill_range_nug[2]) +';'
-            elif 'geo.referencePoint' in lines[ii]:
+            if 'geo.referencePoint' in lines[ii]:
                 lines[ii] = ('geo.referencePoint =['
                     + str(longitude) + ";"
                     + str(latitude) + "];" + '\n')
@@ -249,15 +334,15 @@ class auto_GBIS:
                 else:
                     strike_bound = strike_upper1
                 lines[ii] = ('modelInput.fault.lower=['
-                            + str(int(self.estimate_length*0.9)) + ';  ' 
-                            + str(int(self.estimate_length*0.9)) + ';  '
+                            + str(int(self.estimate_length*0.8)) + ';  ' 
+                            + str(int(self.estimate_length*0.8)) + ';  '
                             + str(int(depth*0.25)) + ';  '
                             + str(dip1_lower) + ';  '
                             + str(int(strike_bound)) + ';  '
                             + str(int(-self.max_dist/4)) + ';  '
                             + str(int(-self.max_dist/4)) + ';  '
                             + str(1.0) + ';  '
-                            + str(1.0) + '];'
+                            + str(-5.0) + '];'
                             +'\n'
                             )
             elif 'modelInput.fault.lower' in lines[ii] and NP==2:
@@ -266,15 +351,15 @@ class auto_GBIS:
                 else:
                     strike_bound = strike_upper2
                 lines[ii] = ('modelInput.fault.lower=['
-                            + str(int(self.estimate_length*0.9)) + ';  ' 
-                            + str(int(self.estimate_length*0.9)) + ';  '
-                            + str(int(depth*0.25)) + ';  '
+                            + str(int(self.estimate_length*0.8)) + ';  ' 
+                            + str(int(self.estimate_length*0.8)) + ';  '
+                            + str(int(depth*0.05)) + ';  '
                             + str(int(dip2_lower)) + ';  '
                             + str(int(strike_bound)) + ';  '
                             + str(int(-self.max_dist/4)) + ';  '
                             + str(int(-self.max_dist/4)) + ';  '
                             + str(1.0) + ';  '
-                            + str(1.0) + '];'
+                            + str(-5.0) + '];'
                             '\n'
                             )
             elif 'modelInput.fault.upper' in lines[ii] and NP==1:
@@ -283,10 +368,10 @@ class auto_GBIS:
                 else:
                     strike_bound = strike_upper1
                 lines[ii] = ('modelInput.fault.upper=['
-                            + str(int(self.estimate_length*1.5)) + ';  ' 
-                            + str(int(self.estimate_length*1.5)) + ';  '
-                            + str(int(depth*2)) + ';  '
-                            + str(int(-dip1*0.25)) + ';  '
+                            + str(int(self.estimate_length*1.75)) + ';  ' 
+                            + str(int(self.estimate_length*1.75)) + ';  '
+                            + str(int(depth*3)) + ';  '
+                            + str(int(-dip1*0.05)) + ';  '
                             + str(int(strike_bound)) + ';  '
                             + str(int(self.max_dist/4)) + ';  '
                             + str(int(self.max_dist/4)) + ';  '
@@ -300,9 +385,9 @@ class auto_GBIS:
                 else:
                     strike_bound = strike_upper2
                 lines[ii] = ('modelInput.fault.upper=['
-                            + str(int(self.estimate_length*1.5)) + ';  ' 
-                            + str(int(self.estimate_length*1.5)) + ';  '
-                            + str(int(depth*1.75)) + ';  '
+                            + str(int(self.estimate_length*1.75)) + ';  ' 
+                            + str(int(self.estimate_length*1.75)) + ';  '
+                            + str(int(depth*3)) + ';  '
                             + str(int(-dip2*0.25)) + ';  '
                             + str(int(strike_bound)) + ';  '
                             + str(int(self.max_dist/4)) + ';  '
@@ -319,12 +404,14 @@ class auto_GBIS:
     def gbisrun(self):
         cwd = os.getcwd()
         # os.chdir(self.DaN_object.event_object.GBIS_location)
-        self.eng.GBISrun(self.DaN_object.event_object.GBIS_insar_template,1,'n','F',1e5,'n','n','n',nargout=0)
+        InSAR_codes = np.arange(len(self.data) + 1)[1:-1]
+        print(InSAR_codes)
+        self.eng.GBISrun(self.DaN_object.event_object.GBIS_insar_template,InSAR_codes,'n','F',self.number_trials,'n','n','n',nargout=0)
         self.outputdir= "./" + self.DaN_object.event_object.GBIS_insar_template.split('/')[-1][:-4] + "/invert_1_F"
         self.outputfile = self.outputdir + "/" + "invert_1_F.mat"
         output_matrix = loadmat(self.outputfile,squeeze_me=True)
         opt_model = output_matrix['invResults'][()].item()[-1]
-        self.eng.generateFinalReport(self.outputfile,3e4,nargout=0)
+        self.eng.generateFinalReport(self.outputfile,self.number_trials*0.2,nargout=0)
         Lon_GBIS, Lat_GBIS = self.eng.convert_location_output(self.GBIS_mat_file_location,self.outputfile,nargout=2)
         print(Lon_GBIS,Lat_GBIS)
         # os.chdir(cwd)
@@ -358,10 +445,13 @@ class auto_GBIS:
     
 if __name__ == "__main__":
     # # example event ID's us6000jk0t, us6000jqxc, us6000kynh,
-    # preproc_object = DaN.deformation_and_noise("us6000jk0t",target_down_samp=1500,inv_soft='GBIS',single_ifgm=False,date_primary=20230108,date_secondary=20230213,stack=True)
-    preproc_object = DaN.deformation_and_noise("us6000ldpg",target_down_samp=1500,inv_soft='GBIS',date_primary=20230926,date_secondary=20231008,frame='020D_05533_131313')
-    # preproc_object = DaN.deformation_and_noise("us6000jk0t",target_down_samp=1500,inv_soft='GBIS')
-    grond_object = auto_GBIS(preproc_object,'/Users/jcondon/phd/code/auto_inv/GBIS.location',NP=2)
+    # preproc_object = DaN.deformation_and_noise("us6000jk0t",target_down_samp=1500,inv_soft='GBIS',single_ifgm=True,date_primary=20230108,date_secondary=20230213,stack=True)
+    # preproc_object = DaN.deformation_and_noise("us6000bdq8",target_down_samp=1500,inv_soft='GBIS',single_ifgm=True,date_primary=20200713,date_secondary=20200830,stack=False,all_coseis=True)
+    preproc_object = DaN.deformation_and_noise("us6000bdq8",target_down_samp=1500,inv_soft='GBIS',single_ifgm=True,date_primary=None,date_secondary=None,stack=False,all_coseis=True)
+    # preproc_object = DaN.deformation_and_noise("us6000ldpg",target_down_samp=1500,inv_soft='GBIS',date_primary=20230926,date_secondary=20231008,frame='020D_05533_131313')
+    # preproc_object = DaN.deformation_and_noise("us7000ljvg",target_down_samp=1500,inv_soft='GBIS',date_primary=20231202,date_secondary=20231226,frame='135D_05421_131313')
+    # preproc_object = DaN.deformation_and_noise("us6000lfn5",target_down_samp=1500,inv_soft='GBIS',date_primary=20231007,date_secondary=20231019,frame='013A_05597_131313',single_ifgm=True)
+    grond_object = auto_GBIS(preproc_object,'/Users/jcondon/phd/code/auto_inv/GBIS.location',NP=1,number_trials=1e3)
 
 
 

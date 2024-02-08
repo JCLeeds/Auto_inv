@@ -23,5 +23,5 @@ def usgs_clip(geoc_ml_path,range_str):
         return  geoc_clipped_path
 
 if __name__ == "__main__":
-    usgs_clip('/Users/jcondon/phd/code/auto_inv/us6000lfn5_insar_processing/GEOC_013A_05597_131313_floatml', '1568:2917/224:1344')
+    usgs_clip('/Users/jcondon/phd/code/auto_inv/us6000lfn5_insar_processing/GEOC_013A_05597_131313_floatml', '1568:2912/224:1344')
    

@@ -88,8 +88,6 @@ def main(geoc_ml_path,output_geoc_ml_path,rad,center,new_points,argv=None,stacke
         if not os.path.exists(out_dir):
             os.mkdir(out_dir)
        
-
-
         EQA_dem_par = os.path.join(geoc_ml_path,"EQA.dem_par")
         width = int(LiCS_lib.get_param_par(EQA_dem_par, 'width'))
         length = int(LiCS_lib.get_param_par(EQA_dem_par, 'nlines'))
@@ -113,7 +111,6 @@ def main(geoc_ml_path,output_geoc_ml_path,rad,center,new_points,argv=None,stacke
         Lat = Lat[:length]
         Lon = Lon[:width]
       
-
         ifgdates = LiCS_tools.get_ifgdates(in_dir)
         n_ifg = len(ifgdates)
        
@@ -155,7 +152,6 @@ def main(geoc_ml_path,output_geoc_ml_path,rad,center,new_points,argv=None,stacke
 
         print("", flush=True)
 
-
     #%% Copy other files
         files = glob.glob(os.path.join(in_dir, '*'))
         for file in files:
@@ -163,13 +159,10 @@ def main(geoc_ml_path,output_geoc_ml_path,rad,center,new_points,argv=None,stacke
                 print('Copy {}'.format(os.path.basename(file)), flush=True)
                 shutil.copy(file, output_geoc_ml_path)
 
-        
         print('\n{} Successfully finished!!\n'.format(os.path.basename(argv[0])))
         print('Output directory: {}\n'.format(os.path.relpath(out_dir)))
 
         
-        
-
 def mask_downsampler(ifgix):
     ifgd = ifgdates2[ifgix]
     if np.mod(ifgix,100) == 0:
@@ -200,10 +193,16 @@ def mask_downsampler(ifgix):
 
     print('at average')
     if return_cov:
-        unw,Lon,Lat,Inc,Heading,cov, Lon_m, Lat_m = poly_average_opti(in_dir,unw,phi,theta,bool_mask,radius,cent,nmpoints)
+        sill_nugget_range = return_cov[ifgd] 
+        print(return_cov[ifgd])
+        unw,Lon,Lat,Inc,Heading,cov, Lon_m, Lat_m = poly_average_opti(in_dir,unw,phi,theta,bool_mask,radius,cent,nmpoints,sill_nugget_range)
     else:
         unw,Lon,Lat,Inc,Heading,Lon_m, Lat_m = poly_average_opti(in_dir,unw,phi,theta,bool_mask,radius,cent,nmpoints)
-    
+
+
+    # Convert from rad to meters 
+    unw = -unw*(0.0555/(4*np.pi)) # ------> rad to m conversion is -lamba/4*pi posative is -LOS
+     
     print("2nd mask")
     print("shape scaled ===== " + str(np.shape(unw)))
     
@@ -235,25 +234,32 @@ def mask_downsampler(ifgix):
     print("done 2 ")
     plot_lib.make_scatter_png(Lon,Lat,Heading, pngfile_Head, cmap_wrap, "Heading",cbar=True)
     print("done 3")
-    plot_lib.make_scatter_png(Lon,Lat,unw, png_regular_unw, cmap_wrap, "Heading",cbar=True)
+    plot_lib.make_scatter_png(Lon,Lat,unw, png_regular_unw, cmap_wrap, "Displacement",cbar=True)
+    Frame_identifier = in_dir.split('/')[-1].split('_')[1]
+
     
-    npzdownout = os.path.join(in_dir,ifgd+'.ds_unw_Lon_Lat_Inc_Heading.npz')
-    unw = -unw/4/np.pi*0.0555 * 1000 # Times by 1000 to get into mm for kite 
+    npzdownout = os.path.join(os.path.join(out_dir),Frame_identifier+'_'+ifgd+'.ds_unw_Lon_Lat_Inc_Heading.npz')
+    # unw = -unw/4/np.pi*0.0555 * 1000 # Times by 1000 to get into mm for kite £ double check this shit 
     # np.vstack((tp, fp)).T
     day=[737063]
     if return_cov:
-        np.savez(npzdownout, ph_disp=unw, lonlat=np.vstack((Lon,Lat)).T,la=Inc,heading=np.mean(Heading),cov=cov,day=day,lonlat_m=np.vstack((Lon_m,Lat_m)).T,sill_range_nug=[return_cov[0],return_cov[1],return_cov[2]])
+        sill_nugget_range = return_cov[ifgd] 
+        np.savez(npzdownout, ph_disp=unw, lonlat=np.vstack((Lon,Lat)).T,la=Inc,heading=np.mean(Heading),cov=cov,day=day,lonlat_m=np.vstack((Lon_m,Lat_m)).T,sill_nugget_range=[sill_nugget_range[0],sill_nugget_range[1],sill_nugget_range[2]])
     else:
         np.savez(npzdownout, ph_disp=unw, lonlat=np.vstack((Lon,Lat)).T,la=Inc,heading=np.mean(Heading),day=day, lonlat_m=np.vstack((Lon_m,Lat_m)).T)
     
     LiCS_lib.npz2mat(npzdownout)
     # os.rename(npzdownout[:-3]+'mat',os.path.join('./us6000jk0t_grond_area/data',npzdownout[:-3]+'mat'))
-    print((npzdownout[:-3]+'mat'))
-    print(npzdownout)
+    # print('THIS IS THE AREA TO LOOOK JOHN 33333333333333333333333333333333333333')
+    # print(npzdownout)
+    # print(Frame_identifier)
+
+    # print((npzdownout[:-3]+'mat'))
+    # print(npzdownout)
   
 
 
-def poly_average_opti(geoc_ml_path,unw,theta,phi,mask,radius,cent,nmpoints):
+def poly_average_opti(geoc_ml_path,unw,theta,phi,mask,radius,cent,nmpoints,sill_nugget_range):
 
     EQA_dem_par = os.path.join(geoc_ml_path,"EQA.dem_par")
     width = int(LiCS_lib.get_param_par(EQA_dem_par, 'width'))
@@ -267,7 +273,6 @@ def poly_average_opti(geoc_ml_path,unw,theta,phi,mask,radius,cent,nmpoints):
     #lon, lat = np.arange(lon1, lon2+postlon, postlon), np.arange(lat1, lat2+postlat, postlat)
     
     
-
     centerlat = lat1+dlat*(length/2)
     ra = float(LiCS_lib.get_param_par(EQA_dem_par, 'ellipsoid_ra'))
     recip_f = float(LiCS_lib.get_param_par(EQA_dem_par, 'ellipsoid_reciprocal_flattening'))
@@ -275,13 +280,6 @@ def poly_average_opti(geoc_ml_path,unw,theta,phi,mask,radius,cent,nmpoints):
     pixsp_a = 2*np.pi*rb/360*abs(dlat)
     pixsp_r = 2*np.pi*ra/360*dlon*np.cos(np.deg2rad(centerlat))
 
-    # scaler_a_inner = int(step_inner/pixsp_a) 
-    # scaler_r_inner = int(step_inner/pixsp_r) 
-
-    # scaler_a_outer = int(step_outer/pixsp_a)
-    # scaler_r_outer = int(step_outer/pixsp_r)
-    # print("Scaler Azimuth_inner==== " + str(scaler_a_inner))
-    # print("Scaler Range_inner=== " + str(scaler_r_inner))
 
     Lat = np.arange(0, (length + 1) * pixsp_r, pixsp_r)
     Lon = np.arange(0, (width + 1) * pixsp_a, pixsp_a) 
@@ -290,13 +288,7 @@ def poly_average_opti(geoc_ml_path,unw,theta,phi,mask,radius,cent,nmpoints):
     # Lon, Lat = np.linspace(lon1, lon2, width), np.linspace(lat1, lat2, length) # Remove
     total_points = length*width
     print('TOTAL Points === ' + str(total_points))
-    # total_fact = np.sqrt(int(total_points/1500))
-    # print("TOTAL FACTOR HERE: === "+str(total_fact))
-    # step_inner = int(0.25*total_fact) 
-    # step_outer = int(0.75*total_fact)
-    # print("STEP INNNER ==== " + str(step_inner))
-    # print("STEP_OUTER ===== " + str(step_outer))
-
+  
     # generate coordinate mesh
     lon_grid, lat_grid = np.meshgrid(Lon, Lat)
 
@@ -309,7 +301,7 @@ def poly_average_opti(geoc_ml_path,unw,theta,phi,mask,radius,cent,nmpoints):
     t = time.time()
     # usgs_Lon = cent[1] # Remove
     # usgs_Lat = cent[0] # Remove
-
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ max Disp before downsamp " + str(np.max(unw)) + '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~' )
     points = ds.resample_all(unw,theta,phi, lon_grid, lat_grid,m_cent,radius,nmpoints,dlon,dlat,pixsp_a,pixsp_r,lon1,lat1)
     # Changed to output in lat long hopefully
     ifgm = points[:,2]
@@ -319,6 +311,7 @@ def poly_average_opti(geoc_ml_path,unw,theta,phi,mask,radius,cent,nmpoints):
     Head = points[:,4]
     Lon = points[:,5]
     Lat = points[:,6]
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ max Disp before downsamp " + str(np.max(ifgm)) + '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~' )
 
     # Lon_m = Lon_m[np.nonzero(Lon_m)]
     # Lat_m = Lat_m[np.nonzero(Lat_m)]
@@ -359,164 +352,18 @@ def poly_average_opti(geoc_ml_path,unw,theta,phi,mask,radius,cent,nmpoints):
   
 
     if return_cov:
-        if len(return_cov) == 3:
-            cov = LiCS_tools.calc_cov(Lon_m,Lat_m,ifgm,return_cov[0],return_cov[1],return_cov[2])
-            # Convert from meters to degrees
-            # Lon_m, Lat_m = Lon, Lat 
-            # # Lon_m, Lat_m = [1,0]
-            # Lon = Lon*1e-3
-            # Lat = Lat*1e-3
-            # Lat, Lon =  LiCS_tools.xy2bl(Lon,Lat,lat1,dlat,lon1,dlon)
-            return ifgm, Lon, Lat, Inc, Head, cov, Lon_m, Lat_m
-        else:
-            print("Error Please Enter Cov in format [sill,range,nugget]")
+        # if len(return_cov) == 3:
+        cov = LiCS_tools.calc_cov(Lon_m,Lat_m,ifgm,sill_nugget_range[0],sill_nugget_range[1],sill_nugget_range[2])
+        return ifgm, Lon, Lat, Inc, Head, cov, Lon_m, Lat_m
+        # else:
+        #     print("Error Please Enter Cov in format [sill,range,nugget]")
     else:
-        # Convert from meters to degrees
-        # Lon_m, Lat_m = Lon, Lat 
-        # Lon_m, Lat_m = [1,0]
-        # Lon = Lon
-        # Lat = Lat
-        # Lat, Lon =  LiCS_tools.xy2bl(Lon,Lat,lat1,dlat,lon1,dlon)
         return ifgm, Lon, Lat, Inc, Head, Lon_m, Lat_m 
 
-
-
-
-
-# def poly_average(geoc_ml_path,unw,theta,phi,step_inner,step_outer,mask,radius,cent):
-#         EQA_dem_par = os.path.join(geoc_ml_path,"EQA.dem_par")
-#         width = int(LiCS_lib.get_param_par(EQA_dem_par, 'width'))
-#         length = int(LiCS_lib.get_param_par(EQA_dem_par, 'nlines'))
-#         dlat = float(LiCS_lib.get_param_par(EQA_dem_par, 'post_lat')) #negative
-#         dlon = float(LiCS_lib.get_param_par(EQA_dem_par, 'post_lon')) #positive
-#         lat1 = float(LiCS_lib.get_param_par(EQA_dem_par, 'corner_lat'))
-#         lon1 = float(LiCS_lib.get_param_par(EQA_dem_par, 'corner_lon'))
- 
-#         centerlat = lat1+dlat*(length/2)
-#         ra = float(LiCS_lib.get_param_par(EQA_dem_par, 'ellipsoid_ra'))
-#         recip_f = float(LiCS_lib.get_param_par(EQA_dem_par, 'ellipsoid_reciprocal_flattening'))
-#         rb = ra*(1-1/recip_f) ## polar radius
-#         pixsp_a = 2*np.pi*rb/360*abs(dlat)
-#         pixsp_r = 2*np.pi*ra/360*dlon*np.cos(np.deg2rad(centerlat))
-
-#         scaler_a = int(step_inner/pixsp_a) 
-#         scaler_r = int(step_outer/pixsp_r) 
-#         print("Scaler Azimuth==== " + str(scaler_a))
-#         print("Scaler Range=== " + str(scaler_r))
-
-#         Lat = np.arange(0, (length + 1) * pixsp_r, pixsp_r)
-#         Lon = np.arange(0, (width + 1) * pixsp_a, pixsp_a)
-      
-#         Lat = Lat[:length]
-#         Lon = Lon[:width]
-
-#         # generate coordinate mesh
-#         lon_grid, lat_grid = np.meshgrid(Lon, Lat)
-
-#         radius = radius*1.5
-#         ii = 0
-
-#         if totpoints is None:
-#             lon_grid_step_outer = np.arange(np.max(Lon),np.min(Lon),-step_outer)
-#             lat_grid_step_outer = np.arange(np.max(Lat),np.min(Lat),-step_outer)
-#             lon_grid_step_inner = np.arange(np.max(Lon),np.min(Lon),-step_inner)
-#             lat_grid_step_inner = np.arange(np.max(Lat),np.min(Lat),-step_inner)
-#         else:
-#             lon_grid_step_outer = np.linspace(np.min(Lon),np.max(Lon),int((totpoints**0.5)*0.5))
-#             lat_grid_step_outer = np.linspace(np.min(Lat),np.max(Lat),int((totpoints**0.5)*0.5))
-#             lon_grid_step_inner = np.linspace(np.min(Lon),np.max(Lon),int((totpoints**0.5)*0.5))
-#             lat_grid_step_inner = np.linspace(np.min(Lat),np.max(Lat),int((totpoints**0.5)*0.5))
-
-#         xi = [] 
-#         yi = []
-#         zi = []
-#         inc = []
-#         hi = []
-#         x_usgs,y_usgs = LiCS_tools.bl2xy(cent[1],cent[0],width,length,lat1,dlat,lon1,dlon)
-#         usgs_Lon = x_usgs * pixsp_a
-#         usgs_Lat = y_usgs * pixsp_r
-#         # unw = unw.flatten()
-#         print(len(lon_grid_step_outer))
-#         print(len(lat_grid_step_outer))
-#         print(len(lon_grid_step_outer)*len(lat_grid_step_outer))
-#         print(np.shape(lon_grid))
-#         print(np.shape(Lat))
-#         print(np.shape(Lon))
-
-        
-#         looponestart = time.time()
-
-#         poly_grid = np.transpose([lon_grid.flatten(), lat_grid.flatten()]) # Re-add flattening 
-#         for lon_step in lon_grid_step_outer:
-#             for lat_step in lat_grid_step_outer:
-#                 dist = np.sqrt((usgs_Lon-lon_step)**2 + (usgs_Lat-lat_step)**2)
-#                 if dist > radius:
-#                     # poly = path.Path(np.array([[lon_step,lat_step],
-#                     #                         [lon_step+step_outer,lat_step],
-#                     #                         [lon_step+step_outer,lat_step+step_outer],
-#                     #                         [lon_step,lat_step+step_outer],
-#                     #                         [lon_step,lat_step]]))
-                    
-#                     poly_mask_test = checker([lon_step,lat_step],[(lon_step+step_outer),lat_step+step_outer],poly_grid).reshape(np.shape(lon_grid))
-#                     # poly_mask = poly.contains_points(poly_grid, radius=0).reshape(np.shape(lon_grid))
-#                     xi.append(lon_step + step_outer/2)
-#                     yi.append(lat_step + step_outer/2)
-#                     zi.append(np.nanmean(unw[poly_mask_test]))
-#                     inc.append(np.nanmean(theta[poly_mask_test]))
-#                     hi.append(np.nanmean(phi[poly_mask_test]))
-#                     ii += 1
-#                 else:
-#                     continue 
-#         looponeend = time.time()
-#         print("loop one ended in " + str(looponeend - looponestart))
-
-#         print(len(lat_grid_step_inner))
-#         print(len(lon_grid_step_inner))
-#         print(len(lon_grid_step_inner)*len(lat_grid_step_inner))
-
-
-#         looptwostart = time.time()
-#         for lon_step in lon_grid_step_inner:
-#             for lat_step in lat_grid_step_inner:
-#                 dist = np.sqrt((usgs_Lon-lon_step)**2 + (usgs_Lat-lat_step)**2)
-#                 if dist < radius:
-#                     poly_mask_test = checker([lon_step,lat_step],[(lon_step+step_inner),lat_step+step_inner],poly_grid).reshape(np.shape(lon_grid))
-#                     xi.append(lon_step + step_inner/2)
-#                     yi.append(lat_step + step_inner/2)
-#                     zi.append(np.nanmean(unw[poly_mask_test]))
-#                     inc.append(np.nanmean(theta[poly_mask_test]))
-#                     hi.append(np.nanmean(phi[poly_mask_test]))
-#                     ii += 1
-#                 else:
-#                     continue 
-        
-#         looptwoend = time.time()
-#         print('loop two ended in ' + str(looptwoend - looptwostart))
-        
-#         Lon = np.array(xi)
-#         Lat = np.array(yi)
-
-#         # Lon_grid, Lat_grid = np.meshgrid(Lon, Lat)
-#         # width_dwn = len(Lon_grid)
-#         # length_dwn = len(Lat_grid)
-
-#         unw = np.array(zi)
-#         # unw = np.fliplr(np.flipud(np.array(zi).reshape((length_dwn,width_dwn))))
-#         # Inc = np.fliplr(np.flipud(np.array(inc).reshape((length_dwn,width_dwn))))
-#         Inc = np.array(inc)
-#         # Heading =  np.fliplr(np.flipud(np.array(hi).reshape((length_dwn,width_dwn))))
-#         Heading = np.array(hi)
-#         print("Number of Samples === " + str(np.shape(unw)))
-#         # LiCS_tools.cluster_unw_dbscan(unw,Lat,Lon)
-       
-#         # print(width_dwn)
-#         # print(length_dwn)
-#         # print(np.shape(unw))
-        
-      
-#         return unw, Lon, Lat, Inc, Heading 
 
 
 def checker(bl,tr,p):
     points_mask = np.where((p[:,0] > bl[0]) & (p[:,0] < tr[0]) & (p[:,1] > bl[1]) &(p[:,1] < tr[1]),True,False)
     return points_mask
+
+# %%

@@ -7,6 +7,10 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
+import obspy
+from obspy.clients.fdsn import Client 
+from obspy import UTCDateTime 
+
 # import bs4 as bs
 # import urllib.request
 import time 
@@ -21,7 +25,8 @@ class USGS_event:
     def __init__(self,ID):
         self.ID = ID 
         self.event_page = self.define_event_page(ID)
-        self.time_pos_depth, self.strike_dip_rake, self.MTdict = self.scrape(self.event_page)
+        self.time_pos_depth, self.strike_dip_rake, self.MTdict = self.pull_USGS_info(self.ID)
+        # self.time_pos_depth, self.strike_dip_rake, self.MTdict = self.scrape(self.event_page)
         self.ifgms_csv = './event_ifgms_'+ self.ID +'.csv'
         self.run_event_ifgm_RScrape()
         self.create_folder_stuct()
@@ -142,6 +147,61 @@ class USGS_event:
         print(MTdict)
         return time_pos_depth, strike_dip_rake, MTdict
     
+    def pull_USGS_info(self,ID):
+        MTdict = {'moment':None,
+                    'magnitude':None ,
+                    'Depth_MT':None,
+                    'PercentDC':None,
+                    'Half Duration':None,
+                    'centroid_lat':None,
+                    'centroid_lon':None
+                    }
+        strike_dip_rake = {"strike":0,
+                            "dip":0, 
+                            "rake":0}
+        time_pos_depth = {"DateTime":None,
+                            "Position":None,
+                            "Depth":None}
+        client = Client('USGS')
+        event = client.get_events(eventid=ID)[0]
+        for x in event.magnitudes:
+            if x['magnitude_type'] == 'Mww':
+                MTdict['magnitude'] =  x.mag
+        # for x in event.focal_mechanisms[0]:
+        x = event.focal_mechanisms[0]
+        for x in event.focal_mechanisms:
+            print(x.resource_id)
+            if 'mww' in str(x.resource_id):
+                strike_dip_rake['strike'] = [x.nodal_planes.nodal_plane_1.strike,x.nodal_planes.nodal_plane_2.strike]
+                strike_dip_rake['dip'] = [x.nodal_planes.nodal_plane_1.dip,x.nodal_planes.nodal_plane_2.dip] 
+                strike_dip_rake['rake'] = [x.nodal_planes.nodal_plane_1.rake,x.nodal_planes.nodal_plane_2.rake] 
+                MTdict['PercentDC'] = x.moment_tensor.double_couple
+                MTdict['moment'] = x.moment_tensor.scalar_moment
+                MTdict['type'] = 'mww'
+                break 
+            elif 'mwb' in str(x.resource_id):
+                strike_dip_rake['strike'] = [x.nodal_planes.nodal_plane_1.strike,x.nodal_planes.nodal_plane_2.strike]
+                strike_dip_rake['dip'] = [x.nodal_planes.nodal_plane_1.dip,x.nodal_planes.nodal_plane_2.dip] 
+                strike_dip_rake['rake'] = [x.nodal_planes.nodal_plane_1.rake,x.nodal_planes.nodal_plane_2.rake] 
+                MTdict['PercentDC'] = x.moment_tensor.double_couple
+                MTdict['moment'] = x.moment_tensor.scalar_moment
+                MTdict['type'] = 'mwb'
+                break
+        for x in event.origins:
+            if 'mww' in str(x.resource_id) and x.depth_type == 'from moment tensor inversion' and MTdict['type'] == 'mww':
+                MTdict['centroid_lat'] = x.latitude
+                MTdict['centroid_lon'] = x.longitude
+                MTdict['Depth_MT'] = x.depth/1000
+                break
+            elif 'mwb' in str(x.resource_id) and x.depth_type =='from moment tensor inversion' and MTdict['type'] == 'mwb':
+                MTdict['centroid_lat'] = x.latitude
+                MTdict['centroid_lon'] = x.longitude
+                MTdict['Depth_MT'] = x.depth/1000
+                break
+        time_pos_depth['Depth'] = event.origins[0].depth/1000
+        time_pos_depth['DateTime'] = str(UTCDateTime(event.origins[0].time)).replace('T',' ').replace('Z','')
+        time_pos_depth['Position'] = [event.origins[0].latitude,event.origins[0].longitude]
+        return  time_pos_depth, strike_dip_rake, MTdict
     def run_event_ifgm_RScrape(self):
         """
         Creates event csv for USGS event from LiCSEarthquake catalog
@@ -169,6 +229,7 @@ class USGS_event:
         self.time_pos_depth, self.strike_dip_rake, self.MTdict = self.scrape(self.event_page)
         return 
     
+
     def create_event_file(self):
         self.event_file_path = os.path.join(self.specific_event,'event.txt')
         if os.path.isfile(self.event_file_path):
@@ -178,10 +239,10 @@ class USGS_event:
         with open(self.event_file_path,'w') as f:
             f.write("name = " + self.ID +'\n')
             f.write("time = " + self.time_pos_depth['DateTime'] +"\n")
-            f.write("latitude = " + self.time_pos_depth['Position'][0] + '\n')
-            f.write("longitude = " + self.time_pos_depth['Position'][1] + '\n')
-            f.write("magnitude = " + self.MTdict['magnitude'] + '\n')
-            f.write("moment = " + self.MTdict['moment'] + '\n')
+            f.write("latitude = " + str(self.time_pos_depth['Position'][0]) + '\n')
+            f.write("longitude = " + str(self.time_pos_depth['Position'][1]) + '\n')
+            f.write("magnitude = " + str(self.MTdict['magnitude']) + '\n')
+            f.write("moment = " + str(self.MTdict['moment']) + '\n')
             f.write("depth = " + str(float(self.time_pos_depth['Depth'])*1000) + "\n") 
             # f.write("region = " + "\n")
             f.write("catalog = USGS \n")
@@ -191,13 +252,14 @@ class USGS_event:
             # f.write("mne = \n")
             # f.write("mnd = \n")
             # f.write("med = \n")
-            f.write("strike1 = " + self.strike_dip_rake['strike'][0] + '\n')
-            f.write("dip1 = " + self.strike_dip_rake['dip'][0] + '\n')
-            f.write("rake1 = " + self.strike_dip_rake['rake'][0] + '\n')
-            f.write("strike2 = " + self.strike_dip_rake['strike'][1] + '\n')
-            f.write("dip2 = " + self.strike_dip_rake['dip'][1] + '\n')
-            f.write("rake2 = " + self.strike_dip_rake['rake'][1] + '\n')
+            f.write("strike1 = " + str(self.strike_dip_rake['strike'][0]) + '\n')
+            f.write("dip1 = " + str(self.strike_dip_rake['dip'][0]) + '\n')
+            f.write("rake1 = " + str(self.strike_dip_rake['rake'][0]) + '\n')
+            f.write("strike2 = " + str(self.strike_dip_rake['strike'][1]) + '\n')
+            f.write("dip2 = " + str(self.strike_dip_rake['dip'][1]) + '\n')
+            f.write("rake2 = " + str(self.strike_dip_rake['rake'][1]) + '\n')
             # f.write("duration = ")
+        shutil.copy(self.event_file_path, os.path.join(self.LiCS_locations,self.ID+'.txt'))
         return 
    
     def create_folder_stuct(self):
