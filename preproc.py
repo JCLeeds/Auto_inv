@@ -35,14 +35,15 @@ class deformation_and_noise:
                  single_ifgm=True,
                  all_coseis=False,
                  stack=False,
-                 scale_factor_mag=0.05,
-                 scale_factor_depth=0.030,
-                 scale_factor_clip_mag=0.05,
-                 scale_factor_clip_depth=0.075,
+                 scale_factor_mag=0.075,
+                 scale_factor_depth=0.075,
+                 scale_factor_clip_mag=0.45,
+                 scale_factor_clip_depth=0.0075,
                  coherence_mask=0.01,
                  target_down_samp=2000,
                  inv_soft='GROND',
-                 look_for_gacos=True): 
+                 look_for_gacos=True,
+                 NP=1): 
         self.event_id = event_id
         self.date_primary = date_primary
         self.date_secondary = date_secondary
@@ -57,6 +58,7 @@ class deformation_and_noise:
         self.coherence_mask_thresh = coherence_mask
         self.target_down_samp = target_down_samp
         self.inv_soft = inv_soft
+        self.NP = NP
         self.geoc_ml_path = None 
         self.geoc_gacos_corr_path = None 
         self.geoc_masked_path = None
@@ -125,7 +127,7 @@ class deformation_and_noise:
                                            scale_factor_mag=self.scale_factor_clip_mag,
                                            scale_factor_depth=self.scale_factor_clip_depth)
         
-        self.forward_model(self.geoc_clipped_path)
+        self.forward_model(self.geoc_clipped_path,self.NP)
         self.geoc_masked_signal = self.signal_mask(self.geoc_clipped_path,
                                               scale_factor_mag=self.scale_factor_mag,
                                               scale_factor_depth=self.scale_factor_depth)
@@ -250,7 +252,7 @@ class deformation_and_noise:
                 geoc_gacos_corr_path = outputdir
         return geoc_gacos_corr_path
     
-    def usgs_clip(self,geoc_ml_path,scale_factor_mag=0.75,scale_factor_depth=0.05):
+    def usgs_clip(self,geoc_ml_path,scale_factor_mag=0.75,scale_factor_depth=0.055):
         """
         Clips frame around USGS locations scaled inversly to depth and linearly with Mag 
         Needs changing to work in local domain not degrees 
@@ -268,6 +270,13 @@ class deformation_and_noise:
         # geoc_clipped_path = geoc_ml_path + "_clipped"
         geo_string = str(lon1) +"/" + str(lon2) + "/" + str(lat1) + "/" + str(lat2)
         print(geo_string)
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~CLIP INFO~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        print("Depth used = "  + str(self.event_object.time_pos_depth['Depth']))
+        print("Depth scaler = " + str(scale_factor_depth) )
+        print('Mag used = ' + str(self.event_object.MTdict['magnitude']))
+        print("mag scaler used = " + str(scale_factor_mag) )
+        print("Clip width in degrees = " + str(clip_width))
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~CLIP INFO~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         if isinstance(geoc_ml_path,list):
             geoc_clipped_path = []
             for ii in range(len(geoc_ml_path)):
@@ -282,21 +291,26 @@ class deformation_and_noise:
                     geoc_clipped_path.append(path)
         else:
             if os.path.isdir(geoc_ml_path + "_clipped"):
-                print('DATA FOR ' + geoc_ml_path[ii] + "_clipped" + "   already present moving on using stored data" ) 
+                print('DATA FOR ' + geoc_ml_path + "_clipped" + "   already present moving on using stored data" ) 
                 geoc_clipped_path = geoc_ml_path + "_clipped"
             else:
                 geoc_clipped_path = geoc_ml_path + "_clipped"
                 clip.main(auto=[geoc_ml_path,geoc_clipped_path,geo_string])
         return  geoc_clipped_path
     
-    def forward_model(self,geoc_ml_path):
+    def forward_model(self,geoc_ml_path,NP):
         mu = 3.2e10
         slip_rate=5.5e-5
         L = np.cbrt(float(self.event_object.MTdict['moment'])/(slip_rate*mu))
-    
-        strike = float(self.event_object.strike_dip_rake['strike'][0])
-        dip = float(self.event_object.strike_dip_rake['dip'][0])
-        rake = float(self.event_object.strike_dip_rake['rake'][0])
+        if NP == 1:
+            strike = float(self.event_object.strike_dip_rake['strike'][0])
+            dip = float(self.event_object.strike_dip_rake['dip'][0])
+            rake = float(self.event_object.strike_dip_rake['rake'][0])
+        elif NP == 2:
+            strike = float(self.event_object.strike_dip_rake['strike'][1])
+            dip = float(self.event_object.strike_dip_rake['dip'][1])
+            rake = float(self.event_object.strike_dip_rake['rake'][1])
+
         slip = L * slip_rate
         depth = float(self.event_object.MTdict['Depth_MT'])*1000
         width = L
@@ -333,8 +347,8 @@ class deformation_and_noise:
             # dates = '20230108_20230213'
             dont_process = 0 
             for ii in range(len(dates)):
-                if os.path.exists(os.path.join(os.path.join(geoc),dates[ii]+"forward_model_comp.png")):
-                        print(os.path.join(os.path.join(geoc),dates[ii]+"forward_model_comp.png") + 'already made moving on')
+                if os.path.exists(os.path.join(os.path.join(geoc_ml_path),dates[ii]+"forward_model_comp.png")):
+                        print(os.path.join(os.path.join(geoc_ml_path),dates[ii]+"forward_model_comp.png") + 'already made moving on')
                         dont_process += 1
                 else:
                     pass 
@@ -352,9 +366,18 @@ class deformation_and_noise:
                                     location) 
                    
 
-    def signal_mask(self,geoc_ml_path,scale_factor_mag=0.75,scale_factor_depth=0.05): 
+    def signal_mask(self,geoc_ml_path,scale_factor_mag=0.75,scale_factor_depth=0.055): 
         cent = [float(self.event_object.time_pos_depth['Position'][0]),float(self.event_object.time_pos_depth['Position'][1])]
         clip_width = (float(self.event_object.MTdict['magnitude']) * scale_factor_mag)+(float(self.event_object.time_pos_depth['Depth'])*scale_factor_depth)*(113.11*10**3)
+
+
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~MASK INFO~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        print("Depth used = "  + str(self.event_object.time_pos_depth['Depth']))
+        print("Depth scaler = " + str(scale_factor_depth) )
+        print('Mag used = ' + str(self.event_object.MTdict['magnitude']))
+        print("mag scaler used = " + str(scale_factor_mag) )
+        print("Mask Diameter in meters = " + str(clip_width))
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~MASK INFO~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         if isinstance(geoc_ml_path,list):
             geoc_mask_signal = []
             for ii in range(len(geoc_ml_path)):
@@ -445,12 +468,12 @@ class deformation_and_noise:
                     output_dict = cs.calculate_semivarigrams(geoc_ml_path[ii])
                     final_dict = final_dict | output_dict
         else:
-                    output_dict = cs.calculate_semivarigrams(geoc_ml_path[ii])
+                    final_dict = cs.calculate_semivarigrams(geoc_ml_path)
 
 
-        return output_dict
+        return final_dict
 
-    def nested_uniform_down_sample(self,geoc_ml_path,nmpoints,scale_factor_mag=0.75,scale_factor_depth=0.05,stacked=False,cov=None):
+    def nested_uniform_down_sample(self,geoc_ml_path,nmpoints,scale_factor_mag=0.75,scale_factor_depth=0.055,stacked=False,cov=None):
         cent = [float(self.event_object.time_pos_depth['Position'][0]),float(self.event_object.time_pos_depth['Position'][1])]
         clip_width = (float(self.event_object.MTdict['magnitude']) * scale_factor_mag)+(float(self.event_object.time_pos_depth['Depth'])*scale_factor_depth)*(113.11*10**3)
         if isinstance(geoc_ml_path,list):

@@ -1,6 +1,6 @@
 import obspy 
 import scrape_USGS as sUSGS
-import data_ingestion as DI 
+import misc_scripts.data_ingestion_legacy as DI 
 import preproc as pp
 import time 
 

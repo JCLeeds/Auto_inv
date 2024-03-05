@@ -37,8 +37,9 @@ def calc_rates(mask,data,ds_total_points):
 
     print("ds_aim is === " + str(ds_total_points))
 
-    inside_downsample_rate = int(np.sqrt(int(points_inner/(ds_total_points*0.5))))
-    outside_downsample_rate = int(np.sqrt(int(points_outer/(ds_total_points*0.5))))
+    inside_downsample_rate = int(np.sqrt(int(points_inner/(ds_total_points*0.75))))
+    outside_downsample_rate = int(np.sqrt(int(points_outer/(ds_total_points*0.25))))
+    # inside_downsample_rate = int(points_inner)
 
     print(inside_downsample_rate)
     print(outside_downsample_rate)

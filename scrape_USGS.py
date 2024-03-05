@@ -147,7 +147,7 @@ class USGS_event:
         print(MTdict)
         return time_pos_depth, strike_dip_rake, MTdict
     
-    def pull_USGS_info(self,ID):
+    def pull_USGS_info(self,ID,client='USGS'):
         MTdict = {'moment':None,
                     'magnitude':None ,
                     'Depth_MT':None,
@@ -162,7 +162,7 @@ class USGS_event:
         time_pos_depth = {"DateTime":None,
                             "Position":None,
                             "Depth":None}
-        client = Client('USGS')
+        client = Client(client)
         event = client.get_events(eventid=ID)[0]
         for x in event.magnitudes:
             if x['magnitude_type'] == 'Mww':

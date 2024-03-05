@@ -294,7 +294,7 @@ def plot_enu(U, model, x, y):
     ax[0,0].set_title('East displacement (mm)')
     
     # Plot North
-    im_n = ax[0,1].imshow(ygrid, extent=extent, origin='lower', cmap=cm.vik)
+    im_n = ax[0,1].imshow(ygrid, extent=extent, cmap=cm.vik)
     ax[0,1].contour(xx, yy, ygrid, linestyles='dashed', colors='white')
     ax[0,1].plot(np.array([end1x, end2x])/1000, np.array([end1y, end2y])/1000, color='Black')
     ax[0,1].scatter(end1x/1000, end1y/1000, color='Black')
@@ -305,7 +305,7 @@ def plot_enu(U, model, x, y):
     ax[0,1].set_title('North displacement (mm)')
     
     # Plot Up
-    im_u = ax[1,0].imshow(zgrid, extent=extent, origin='lower', cmap=cm.vik)
+    im_u = ax[1,0].imshow(zgrid, extent=extent, cmap=cm.vik)
     ax[1,0].contour(xx, yy, zgrid, linestyles='dashed', colors='white')
     ax[1,0].plot(np.array([end1x, end2x])/1000, np.array([end1y, end2y])/1000, color='Black')
     ax[1,0].scatter(end1x/1000, end1y/1000, color='Black')
@@ -316,7 +316,7 @@ def plot_enu(U, model, x, y):
     ax[1,0].set_title('Vertical displacement (mm)')
     
     # Plot 3D deformation
-    im_3d = ax[1,1].imshow(zgrid, extent=extent, origin='lower', cmap=cm.vik)
+    im_3d = ax[1,1].imshow(zgrid, extent=extent, cmap=cm.vik)
     ax[1,1].plot(np.array([end1x, end2x])/1000, np.array([end1y, end2y])/1000, color='Black')
     ax[1,1].scatter(end1x/1000, end1y/1000, color='Black')
     ax[1,1].plot(np.array([c1x, c2x, c3x, c4x, c1x])/1000, np.array([c1y, c2y, c3y, c4y, c1y])/1000, color='Black')
@@ -415,11 +415,11 @@ def plot_data_model(x, y, U, model, data_unw, e2los, n2los, u2los, show_grid=Fal
     print('RMS misfit between data and model = {} mm'.format(round(rms_misfit(data_unw,los_grid)*1000,2)))
     
     # Setup plot
-    fig, ax = plt.subplots(1, 2, figsize=(30, 10))
+    fig, ax = plt.subplots(1, 3, figsize=(30, 10))
     extent = (x[0], x[-1], y[0], y[-1])
     
     # Plot unwrapped data
-    im_u = ax[0].imshow(data_unw*10, extent=extent, origin='lower', cmap=cm.vik)
+    im_u = ax[0].imshow(data_unw*1000, extent=extent,origin='lower', cmap=cm.vik)
     ax[0].plot(np.array([end1x, end2x])/1000, np.array([end1y, end2y])/1000, color='black')
     ax[0].scatter(end1x/1000, end1y/1000, color='black')
     if show_grid:
@@ -434,7 +434,7 @@ def plot_data_model(x, y, U, model, data_unw, e2los, n2los, u2los, show_grid=Fal
     # Plot unwrapped model
     # los_grid = los_grid[~np.isnan(data_unw)]
     print(np.shape(data_unw))
-    im_u = ax[1].imshow(los_grid*1000, extent=extent, origin='lower', cmap=cm.vik)
+    im_u = ax[1].imshow(los_grid*1000, extent=extent,origin='lower', cmap=cm.vik)
     ax[1].plot(np.array([end1x, end2x])/1000, np.array([end1y, end2y])/1000, color='black')
     ax[1].scatter(end1x/1000, end1y/1000, color='black')
     if show_grid:
@@ -445,6 +445,22 @@ def plot_data_model(x, y, U, model, data_unw, e2los, n2los, u2los, show_grid=Fal
     ax[1].set_xlabel('Easting (km)')
     ax[1].set_ylabel('Northing (km)')
     ax[1].set_title('Unwrapped model (mm)')
+
+
+    # Plot unwrapped residual
+    im_u = ax[2].imshow(resid*1000, extent=extent,origin='lower', cmap=cm.vik)
+    ax[2].plot(np.array([end1x, end2x])/1000, np.array([end1y, end2y])/1000, color='black')
+    ax[2].scatter(end1x/1000, end1y/1000, color='black')
+    if show_grid:
+        ax[2].grid()
+    ax[2].plot(np.array([c1x, c2x, c3x, c4x, c1x])/1000, np.array([c1y, c2y, c3y, c4y, c1y])/1000, color='black')
+    cbar = fig.colorbar(im_u, ax=ax[2],fraction=0.046, pad=0.04)
+    cbar.set_label('Residual (mm)', rotation=270)
+    ax[2].set_xlabel('Easting (km)')
+    ax[2].set_ylabel('Northing (km)')
+    ax[2].set_title('Unwrapped residual (mm)')
+
+
     
     return fig 
 

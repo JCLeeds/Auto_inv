@@ -193,6 +193,7 @@ def mask_downsampler(ifgix):
 
     print('at average')
     if return_cov:
+        print(return_cov)
         sill_nugget_range = return_cov[ifgd] 
         print(return_cov[ifgd])
         unw,Lon,Lat,Inc,Heading,cov, Lon_m, Lat_m = poly_average_opti(in_dir,unw,phi,theta,bool_mask,radius,cent,nmpoints,sill_nugget_range)
@@ -201,7 +202,7 @@ def mask_downsampler(ifgix):
 
 
     # Convert from rad to meters 
-    unw = -unw*(0.0555/(4*np.pi)) # ------> rad to m conversion is -lamba/4*pi posative is -LOS
+    # unw = -unw*(0.0555/(4*np.pi)) # ------> rad to m conversion is -lamba/4*pi posative is -LOS
      
     print("2nd mask")
     print("shape scaled ===== " + str(np.shape(unw)))
@@ -227,14 +228,14 @@ def mask_downsampler(ifgix):
     png_regular_unw = os.path.join(out_dir1, '.regular_unw.png')
 
 
-    title = '{} ({}pi/cycle)'.format(ifgd, cycle*2)
-    plot_lib.make_scatter_png(Lon,Lat,np.angle(np.exp(1j*unw/cycle)*cycle), pngfile_unw, cmap_wrap, title, -np.pi, np.pi, cbar=True)
+    # title = '{} ({}pi/cycle)'.format(ifgd, cycle*2)
+    # plot_lib.make_scatter_png(Lon,Lat,np.angle(np.exp(1j*unw/cycle)*cycle), pngfile_unw, cmap_wrap, title, -np.pi, np.pi, cbar=True)
     print("done 1 ")
     plot_lib.make_scatter_png(Lon,Lat,Inc, pngfile_Inc, cmap_wrap, "Incidence", cbar=True)
     print("done 2 ")
     plot_lib.make_scatter_png(Lon,Lat,Heading, pngfile_Head, cmap_wrap, "Heading",cbar=True)
     print("done 3")
-    plot_lib.make_scatter_png(Lon,Lat,unw, png_regular_unw, cmap_wrap, "Displacement",cbar=True)
+    plot_lib.make_scatter_png(Lon,Lat,unw, png_regular_unw, cmap_wrap, "Displacement (radians)",cbar=True)
     Frame_identifier = in_dir.split('/')[-1].split('_')[1]
 
     

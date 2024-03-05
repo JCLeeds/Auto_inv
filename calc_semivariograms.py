@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from scipy import stats
 from matplotlib.colors import LinearSegmentedColormap as LSC
 from matplotlib import pyplot as plt
+from cmcrameri import cm
 
 
 
@@ -87,7 +88,7 @@ def calc_semi_para(ifgix):
         unw_path = os.path.join(os.path.join(outdir,ifgd),ifgd+".unw")   
         ifgm = LiCS_lib.read_img(unw_path,length,width)
       
-        ifgm = -ifgm/4/np.pi*0.0555 # Added by JC to convert to meters deformation. ----> rad to m posative is -LOS
+        ifgm = -ifgm*0.0555/(4*np.pi)   # Added by JC to convert to meters deformation. ----> rad to m posative is -LOS
 
         Lat = np.arange(0, (length + 1) * pixsp_r, pixsp_r)
         Lon = np.arange(0, (width + 1) * pixsp_a, pixsp_a)
@@ -186,18 +187,22 @@ def calc_semi_para(ifgix):
         # Calculate squared difference between random points
         vals = abs((ifgm[pix_1] - ifgm[pix_2])) ** 2
 
-        medians, binedges = stats.binned_statistic(dists, vals, 'median', bins=1000)[:-1]
-        stds = stats.binned_statistic(dists, vals, 'std', bins=1000)[0]
+        medians, binedges = stats.binned_statistic(dists, vals, 'median', bins=500)[:-1]
+        stds = stats.binned_statistic(dists, vals, 'std', bins=500)[0]
         bincenters = (binedges[0:-1] + binedges[1:]) / 2
         mod = Model(spherical)
 
+        # set range as moving average. 
+
         # try:
+        # REMOVED JACKS WEIGHTING NOT SURE IF THIS IS CORRECT
         mod.set_param_hint('p', value=np.percentile(medians, 75))  # guess maximum variance
         mod.set_param_hint('n', value=0)  # guess 0
         mod.set_param_hint('r', value=8000)  # guess 100 km
         sigma = stds + np.power(bincenters / max(bincenters), 2)
         sigma = stds * (1 + (max(bincenters) / bincenters))
-        result = mod.fit(medians, d=bincenters, weights=sigma)
+        # result = mod.fit(medians, d=bincenters, weights=sigma)
+        result = mod.fit(medians, d=bincenters)
     
 
         # except:
