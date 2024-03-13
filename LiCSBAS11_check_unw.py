@@ -73,7 +73,7 @@ import datetime as dt
 import LiCSBAS_io_lib as io_lib
 import LiCSBAS_tools_lib as tools_lib
 import LiCSBAS_plot_lib as plot_lib
-
+import pylab as plt 
 class Usage(Exception):
     """Usage context manager"""
     def __init__(self, msg):
@@ -81,11 +81,18 @@ class Usage(Exception):
 
 
 #%% Main
-def main(argv=None):
+def main(argv=None,auto=None):
 
     #%% Check argv
     if argv == None:
         argv = sys.argv
+    if auto:
+        print(len(auto))
+        in_dir=auto[0]
+        out_dir=auto[1]
+        cc_ifg_thre = auto[2]
+        coverage = auto[3]
+    
 
     start = time.time()
     ver="1.3.3"; date=20210402; author="Y. Morishita"
@@ -94,10 +101,10 @@ def main(argv=None):
 
 
     #%% Set default
-    ifgdir = []
-    tsadir = []
-    coh_thre = 0.05
-    unw_cov_thre = 0.3
+    ifgdir = in_dir
+    tsadir = out_dir
+    coh_thre = cc_ifg_thre
+    unw_cov_thre = coverage
 
 
     #%% Read options
@@ -200,13 +207,23 @@ def main(argv=None):
             print("  {0:3}/{1:3}th unw to identify valid area...".format(ifgix, n_ifg), flush=True)
         unwfile = os.path.join(ifgdir, ifgd, ifgd+'.unw')
         unw = io_lib.read_img(unwfile, length, width)
-
+        print('max unwrap value')
+        print(np.max(unw))
         unw[unw == 0] = np.nan # Fill 0 with nan
+        # print(~np.isnan(unw))
+        print('every 1000 unw value')
+        print(unw[0::1000])
         n_unw += ~np.isnan(unw) # Summing number of unnan unw
 
     ## Identify valid area and calc rate_cov
     bool_valid = (n_unw>=n_im)
     n_unw_valid = bool_valid.sum()
+    print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~checker~~~~~~~~~~~~~~~~~~')
+    print('imdates=' + str(imdates))
+    print('nim=' + str(n_im))
+    print('bool_valid=' + str(bool_valid))
+    print('n_unw_valid=' + str(n_unw_valid))
+    print('n_unw=' +str(n_unw) )
 
     ## Read cc and unw data
     for ifgix, ifgd in enumerate(ifgdates):

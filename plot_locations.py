@@ -183,14 +183,17 @@ def plot_location_comparisons(vertex_path,
     opt_model[4] = opt_model[4] + 180 
     if opt_model[4] > 360: 
         opt_model[4] = opt_model[4] - 360
-    z_scaling = str(round(6/np.abs(region[-1] - region[len(region)-1]),5)) +'c'
+
+    z_scaling = str(round(6/np.abs(region[-2] - region[len(region)-1]),5)) +'c'
+    print('z_scaling')
+    print(z_scaling)
     perspective=[opt_model[4]+20,15]
     new_fig.basemap(region=region, projection="M8i",map_scale="jBL+w10k+o0.5c/0.5c+f+lkm")
     new_fig.grdview(
             grid=terrain,
             perspective=perspective,
             projection="M8c",
-            zscale="0.0005c",
+            zscale=z_scaling,
             # Set the surftype to "surface"
             surftype="s",
             shading="+a45",
@@ -217,7 +220,7 @@ def plot_location_comparisons(vertex_path,
                     #    sizes=0.1 * (2**np.array(eqMagAll)),
                     #    style="uc",
                     fill="gray",
-                    zscale="0.0005c",
+                    zscale=z_scaling,
                     perspective=perspective,
                     projection="M8c",
                     transparency=20,
@@ -234,7 +237,7 @@ def plot_location_comparisons(vertex_path,
                     #    sizes=0.1 * (2**np.array(eqMagAll)),
                     #    style="uc",
                     fill="gray",
-                    zscale="0.0005c",
+                    zscale=z_scaling,
                     perspective=perspective,
                     projection="M8c",
                     transparency=20,

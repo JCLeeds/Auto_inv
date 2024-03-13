@@ -123,13 +123,27 @@ class DataBlock:
             return geoc_path, gacos_path
         
         else:
-            data_exist, geoc_path, gacos_path = self.data_checker(frame)
-            if data_exist is False:
-                self.LiCS_data_pull_date_range(frame,startdate,enddate,single_date=single_ifgm)
-                # geoc_path, gacos_path = self.rename_LiCS_dir(frame+"_"+str(startdate)+"_"+str(enddate))
-                geoc_path, gacos_path = self.rename_LiCS_dir(frame)
+            if isinstance(frame,list):
+                geoc_path = [] 
+                gacos_path = []
+                for ii in range(len(frame)):
+                    data_exist, single_geoc, single_gacos = self.data_checker(frame[ii])
+                    if data_exist is False:
+                        self.LiCS_data_pull_date_range(frame[ii],startdate,enddate,single_date=single_ifgm)
+                        single_geoc, single_gacos = self.rename_LiCS_dir(frame[ii])
+                        geoc_path.append(single_geoc)
+                        gacos_path.append(single_gacos)
+                else:
+                    pass
+
             else:
-                pass
+                data_exist, geoc_path, gacos_path = self.data_checker(frame)
+                if data_exist is False:
+                    self.LiCS_data_pull_date_range(frame,startdate,enddate,single_date=single_ifgm)
+                    geoc_path, gacos_path = self.rename_LiCS_dir(frame)
+                else:
+                    pass
+            
             return geoc_path, gacos_path
         
     def rename_LiCS_dir(self,identifier):

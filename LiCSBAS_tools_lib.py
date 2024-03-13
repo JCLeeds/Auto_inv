@@ -706,4 +706,5 @@ def invert_plane(ifgm, lat, lon):
     d = ifgm  
     m = np.linalg.inv((np.transpose(G) @ G)) @ np.transpose(G) @ (d) 
     ifgm_ramp_removed = ifgm - (m[0]*(lat**2) + m[1]*(lon**2) + m[2]*lat*lon + m[3]*lat + m[4]*lon +m[5]) 
+    print('Ramp params: y^2a=' + str(m[0]) +'  x^2 b=' + str(m[1]) + ' xy c=' + str(m[2]) +' y d= ' + str(m[3]) + ' x e=' + str(m[4]))
     return ifgm_ramp_removed, lat , lon

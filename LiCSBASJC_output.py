@@ -55,7 +55,7 @@ def produce_final_GBISoutput(geoc_ml_path,output_geoc_ml_path, model, vertex_pat
             argv = sys.argv
     
 
-    global ifgdates2,in_dir, out_dir, pixsp_a, pixsp_r, opt_model, vertex, xy, lats, lons, locations, usgs_model, resampled_terrain,gradiant
+    global ifgdates2,in_dir, out_dir, pixsp_a, pixsp_r, opt_model, vertex, xy, lats, lons, locations, usgs_model, resampled_terrain,gradiant,terrain
     opt_model = model
     usgs_model = seis_model
 
@@ -119,7 +119,11 @@ def produce_final_GBISoutput(geoc_ml_path,output_geoc_ml_path, model, vertex_pat
 
     region = [np.min(lons),np.max(lons),np.min(lats),np.max(lats)] 
     dem_region = [x1,x2,y1,y2]
-    dem_region = [np.min(lons)-0.1,np.max(lons)+0.1,np.min(lats)-0.1,np.max(lats)+0.1] 
+    depth_vertex = vertex[2][:]
+    dem_region = [np.min(lons)-0.1,np.max(lons)+0.1,np.min(lats)-0.1,np.max(lats)+0.1,(np.min(depth_vertex)-2000),3000] 
+    
+    # region.append(np.min(depth_vertex)-2000)
+    # region.append(3000)
    
 
     terrain = pygmt.datasets.load_earth_relief(
@@ -188,7 +192,112 @@ def produce_final_GBISoutput(geoc_ml_path,output_geoc_ml_path, model, vertex_pat
 
         print('\n{} Successfully finished!!\n'.format(os.path.basename(argv[0])))
         print('Output directory: {}\n'.format(os.path.relpath(out_dir)))
-    return 
+
+
+        print("3D Plots ")
+        lons_vertex = vertex[0][:]
+        lats_vertex = vertex[1][:]
+        depth_vertex = vertex[2][:]
+        surface_projection = pygmt.project(center=[lons_vertex[4],lats_vertex[4]],endpoint=[lons_vertex[5],lats_vertex[5]], generate=0.01)
+        region.append(np.min(depth_vertex)-2000)
+        region.append(3000)
+
+        new_fig = pygmt.Figure()
+        print(region)
+        print('finding surface projection of tracks')
+        down_terrain = out_dir+'/'+'down_terrain.grd'
+        pygmt.grdsample(terrain,region=region,outgrid=down_terrain,spacing='50s')
+        pygmt.grdtrack(
+                grid = down_terrain, 
+                points = surface_projection,
+                outfile=os.path.join(out_dir,"surface_projection_of_fault.txt"),
+                skiprows=False,
+                newcolname='surface_proj')
+        x_project = []
+        y_project = []
+        z_project = [] 
+
+        with open(os.path.join(out_dir,"surface_projection_of_fault.txt"), 'r') as f:
+            lines = f.readlines()
+        for line in lines:
+            # print(line.split(' '))
+            x_project.append(float(line.split()[0]))
+            y_project.append(float(line.split()[1]))
+            z_project.append(float(line.split()[3]))
+        opt_model[4] = opt_model[4] + 180 
+        if opt_model[4] > 360: 
+            opt_model[4] = opt_model[4] - 360
+        total_depth = np.abs(region[-2]-region[len(region)-1])
+        print(total_depth)
+        z_scaling = str(round(6/total_depth,8)) +'c'
+        # z_scaling = str(round(6/np.abs(region[-2] - region[len(region)-1]),5)) +'c'
+        print('Calculating z_scaling')
+        print(z_scaling)
+        perspective=[opt_model[4]+20,20]
+        print('perspective = ' + str(perspective))
+        print('plotting basemap')
+        new_fig.basemap(region=region, projection="M8i",map_scale="jBL+w10k+o0.5c/0.5c+f+lkm")
+        print('plotting 3D topo')
+        new_fig.grdview(
+                grid=down_terrain,
+                perspective=perspective,
+                projection="M8c",
+                zscale=z_scaling,
+                # Set the surftype to "surface"
+                surftype="s",
+                shading="+a45",
+                # Set the CPT to "geo"
+                cmap="geo",
+                region=region,
+                frame=["xa", "yaf", "za+lDepth(m)", "wSnEZ"],
+                transparency=20
+                )
+        print('plotting fault plane on 2D projection on bottom')
+        new_fig.plot(x=lons_vertex[:-2],
+                            y=lats_vertex[:-2],
+                            pen='1p,red,-',
+                            fill='white',
+                            transparency=20,
+                            region=region[:-2],
+                            projection='M8i',
+                            perspective=perspective)
+        print('plotting fault plane at depth')
+        new_fig.plot3d(x=lons_vertex[:-2],
+                        y=lats_vertex[:-2],
+                        z=depth_vertex[:-2],
+                        pen='2p,red',
+                        no_clip=False,
+                        #    sizes=0.1 * (2**np.array(eqMagAll)),
+                        #    style="uc",
+                        fill="gray",
+                        zscale=z_scaling,
+                        perspective=perspective,
+                        projection="M8c",
+                        transparency=20,
+                        #    frame=["xa", "yaf", "za", "wSnEZ"],
+                        region=region)
+        print('plotting surface projection of Fault')
+        new_fig.plot3d(x=x_project,
+                        y=y_project,
+                        z=z_project,
+                        pen='2p,red',
+                        no_clip=False,
+                        style="c",
+                        size=(np.zeros(np.shape(x_project))+0.075),
+                        #    sizes=0.1 * (2**np.array(eqMagAll)),
+                        #    style="uc",
+                        fill="gray",
+                        zscale=z_scaling,
+                        perspective=perspective,
+                        projection="M8c",
+                        transparency=20,
+                        region=region)
+
+        # new_fig.show()
+        # new_fig.savefig('3D_test.png')
+        print('saving figure')
+        new_fig.savefig(os.path.join(out_dir,'3D_fault_plane.png'))
+        return 
 
 
 def GBIS_GMT_OUTPUT_FORWARD_MODEL(ifgix):
@@ -200,7 +309,6 @@ def GBIS_GMT_OUTPUT_FORWARD_MODEL(ifgix):
         print("  {0:3}/{1:3}th unw...".format(ifgix, len(ifgdates2)), flush=True)
 
    
-
     EQA_dem_par = os.path.join(in_dir,"EQA.dem_par")
     width_ifgm = int(LiCS_lib.get_param_par(EQA_dem_par, 'width'))
     length_ifgm = int(LiCS_lib.get_param_par(EQA_dem_par, 'nlines'))
@@ -238,7 +346,8 @@ def GBIS_GMT_OUTPUT_FORWARD_MODEL(ifgix):
     length = opt_model[0]
     width = opt_model[1]
     depth = opt_model[2]
-    dip = opt_model[3]
+    dip = -opt_model[3]
+    depth =  depth + ((width/2)*np.sin(np.abs(dip)*(np.pi/180)))
     strike = opt_model[4] - 180 
     # strike = opt_model[4]
     X = opt_model[5]
@@ -462,7 +571,7 @@ def GBIS_GMT_OUTPUT_FORWARD_MODEL(ifgix):
         for ii in range(0,3):
                 fig.colorbar(frame=["x+lLOS displacment(m)", "y+lm"], position="JMB",projection='M?c',panel=[1,ii])# ,panel=[1,0]
         # fig.show(method='external')
-        fig.savefig(os.path.join(out_dir1+'6_panel_comp.png'))
+        fig.savefig(os.path.join(out_dir1,'6_panel_comp.png'))
 
 
     ######################################## 2D locations plot ##############################################################
@@ -477,42 +586,44 @@ def GBIS_GMT_OUTPUT_FORWARD_MODEL(ifgix):
     dem_region = [x1,x2,y1,y2]
     dem_region = [np.min(lons)-0.1,np.max(lons)+0.1,np.min(lats)-0.1,np.max(lats)+0.1] 
    
-  
-    pygmt.xyz2grd(x=lons.flatten(),y=lats.flatten(),z=unw.flatten(),outgrid=file_path_data,region=region,spacing=(0.001,0.001))
+    print('surface project')
+    # pygmt.xyz2grd(x=lons.flatten(),y=lats.flatten(),z=unw.flatten(),outgrid=file_path_data,region=region,spacing=(0.001,0.001))
     lons_vertex = vertex[0][:]
     lats_vertex = vertex[1][:]
     depth_vertex = vertex[2][:]
     surface_projection = pygmt.project(center=[lons_vertex[4],lats_vertex[4]],endpoint=[lons_vertex[5],lats_vertex[5]], generate=0.01)
  
     
-    max_data = np.max(unw[~np.isnan(unw)].flatten()) 
-    # print(max_data)
-    min_data = np.min(unw[~np.isnan(unw)].flatten()) 
-    data_series = str(min_data) + '/' + str(max_data*1.5) +'/' + str((max_data - min_data)/100)
-    # print("data cpt")
-    # print(data_series)
-
+    # max_data = np.max(unw[~np.isnan(unw)].flatten()) 
+    # # print(max_data)
+    # min_data = np.min(unw[~np.isnan(unw)].flatten()) 
+    # data_series = str(min_data) + '/' + str(max_data*1.5) +'/' + str((max_data - min_data)/100)
+    # # print("data cpt")
+    # # print(data_series)
+    print('make color pallette')
     fig_2D = pygmt.Figure()
     pygmt.config(MAP_FRAME_TYPE="plain")
     pygmt.config(FORMAT_GEO_MAP="ddd.xx")
     pygmt.config(FORMAT_FLOAT_OUT='%.12lg') 
-    cmap_output_data =  out_dir1 + '/' +'InSAR_CPT_data.cpt'
+    # cmap_output_data =  out_dir1 + '/' +'InSAR_CPT_data.cpt'
     topo_output_cpt = out_dir1 + '/topo.cpt'
     topo_cpt_series = '0/5000/100' 
     pygmt.makecpt(cmap='oleron',series=topo_cpt_series, continuous=True,output=topo_output_cpt) 
     pygmt.makecpt(cmap='polar',series=data_series, continuous=True,output=cmap_output_data) 
 
     
+    print('add basemap, gridimage and coast to 2D figure')
   
-    fig_2D.basemap(frame=['a','+tUSGS Location Comparison'],region=region,projection='M8c',map_scale="jBL+w10k+o0.5c/0.5c+f+lkm")
-    fig_2D.grdimage(grid=resampled_terrain,cmap=topo_output_cpt,region=region,projection='M8c',shading='+a-35')
-    fig_2D.coast(region=region, projection = 'M8c', water='lightblue')
+    fig_2D.grdimage(terrain,cmap=topo_output_cpt,region=region,projection='M8c',shading='+a-35')
+  
    
-    
+    print('Down sample InSAR grd')
     unw_grd_ds = pygmt.grdsample(grid=file_path_data,spacing='10s',registration='gridline',region=region)
- 
+    print('grdimage InSAR grid')
     fig_2D.grdimage(grid=unw_grd_ds,cmap=cmap_output_data,region=region,projection='M8c',shading=gradiant,transparency=80,nan_transparent=True)
-
+    fig_2D.basemap(frame=['a','+tUSGS Location Comparison'],region=region,projection='M8c',map_scale="jBL+w10k+o0.5c/0.5c+f+lkm")
+    fig_2D.coast(region=region, projection = 'M8c', water='lightblue')
+    print('plotting fault plane')
     fig_2D.plot(x=lons_vertex[:-2],
                         y=lats_vertex[:-2],
                         pen='1p,black',
@@ -521,7 +632,7 @@ def GBIS_GMT_OUTPUT_FORWARD_MODEL(ifgix):
                         region=region,
                         projection='M8c',
                         )
-    
+    print('plotting surface projection')
     fig_2D.plot(x=lons_vertex[len(lons_vertex)-2:len(lons_vertex)],
                 y=lats_vertex[len(lats_vertex)-2:len(lats_vertex)],
                 pen='1p,black,.',
@@ -533,105 +644,20 @@ def GBIS_GMT_OUTPUT_FORWARD_MODEL(ifgix):
                 transparency=20,
                 # frame=["xa", "yaf", "za", "wSnEZ"],
                 region=region)
-    
+    print('plotting USGS location')
     fig_2D.plot(x=locations[0],
              y=locations[1],
              pen='1p,red',
              style='a0.4c',
              fill='darkorange')
-    font = "4p,Helvetica-Bold"
-    # fig_2D.text(x=locations[0], y=locations[1] + np.abs(0.001*locations[1]), text="USGS", font=font, region=region,projection='M8c',fill="white")
+    font = "2p,Helvetica-Bold"
+    fig_2D.text(x=locations[0], y=locations[1] + np.abs(0.001*locations[1]), text="USGS", font=font, region=region,projection='M8c',fill="white")
     # fig_2D.savefig('2D_test.png')
+    print('saving figure')
     fig_2D.savefig(os.path.join(out_dir1,'2D_locations_plot.png'))
     # fig.show()
 
 ############################################# 3D section ##############################################
-    print("3D Plots ")
-    region.append(np.min(depth_vertex)-2000)
-    region.append(3000)
-    new_fig = pygmt.Figure()
-    print(region)
-    pygmt.grdtrack(
-            grid = resampled_terrain, 
-            points = surface_projection,
-            outfile="tmp_NP1.txt",
-            skiprows=False,
-            newcolname='surface_proj')
-    x_project = []
-    y_project = []
-    z_project = [] 
-
-    with open("tmp_NP1.txt", 'r') as f:
-        lines = f.readlines()
-    for line in lines:
-        # print(line.split(' '))
-        x_project.append(float(line.split()[0]))
-        y_project.append(float(line.split()[1]))
-        z_project.append(float(line.split()[3]))
-    opt_model[4] = opt_model[4] + 180 
-    if opt_model[4] > 360: 
-        opt_model[4] = opt_model[4] - 360
-    total_depth = np.abs(region[-1]-region[len(region)-1])
-    z_scaling = str(6/total_depth) +'c'
-    perspective=[opt_model[4]+20,15]
-    new_fig.basemap(region=region, projection="M8i",map_scale="jBL+w10k+o0.5c/0.5c+f+lkm")
-    new_fig.grdview(
-            grid=resampled_terrain,
-            perspective=perspective,
-            projection="M8c",
-            zscale=z_scaling,
-            # Set the surftype to "surface"
-            surftype="s",
-            shading="+a45",
-            # Set the CPT to "geo"
-            cmap="geo",
-            region=region,
-            frame=["xa", "yaf", "za+lDepth(m)", "wSnEZ"],
-            transparency=20
-            )
-    new_fig.plot(x=lons_vertex[:-2],
-                        y=lats_vertex[:-2],
-                        pen='1p,red,-',
-                        fill='white',
-                        transparency=20,
-                        region=region[:-2],
-                        projection='M8i',
-                        perspective=perspective)
-
-    new_fig.plot3d(x=lons_vertex[:-2],
-                    y=lats_vertex[:-2],
-                    z=depth_vertex[:-2],
-                    pen='2p,red',
-                    no_clip=False,
-                    #    sizes=0.1 * (2**np.array(eqMagAll)),
-                    #    style="uc",
-                    fill="gray",
-                    zscale=z_scaling,
-                    perspective=perspective,
-                    projection="M8c",
-                    transparency=20,
-                    #    frame=["xa", "yaf", "za", "wSnEZ"],
-                    region=region)
-    
-    new_fig.plot3d(x=x_project,
-                    y=y_project,
-                    z=z_project,
-                    pen='2p,red',
-                    no_clip=False,
-                    style="c",
-                    size=(np.zeros(np.shape(x_project))+0.075),
-                    #    sizes=0.1 * (2**np.array(eqMagAll)),
-                    #    style="uc",
-                    fill="gray",
-                    zscale=z_scaling,
-                    perspective=perspective,
-                    projection="M8c",
-                    transparency=20,
-                    region=region)
-
-    # new_fig.show()
-    # new_fig.savefig('3D_test.png')
-    # 
-    new_fig.savefig(os.path.join(out_dir1,'3D_locations_plot.png'))
+  
   
     return 

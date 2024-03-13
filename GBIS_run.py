@@ -37,6 +37,7 @@ import h5py
 from scipy import io
 from scipy.io import loadmat
 import LiCSBASJC_output as op 
+import pandas as pd
 
 
 class auto_GBIS:
@@ -59,7 +60,9 @@ class auto_GBIS:
         self.edit_input_priors(NP=NP)
         self.opt_model, self.GBIS_lon, self.GBIS_lat = self.gbisrun()
         # self.plot_locations()
+        self.create_catalog_entry(NP)
         self.gmt_output(NP)
+       
       
 
     def convert_GBIS_Mat_format(self):
@@ -442,23 +445,22 @@ class auto_GBIS:
         cwd = os.getcwd()
         # os.chdir(self.DaN_object.event_object.GBIS_location)
         if len(self.data) == 1:
-            InSAR_codes = 1
+            self.InSAR_codes = 1
         else:
-            InSAR_codes = np.arange(len(self.data) + 1)[1:-1]
+            self.InSAR_codes = np.arange(len(self.data) + 1)[1:-1]
             InSAR_codes_string = "invert_"
-            for ii in range(len(InSAR_codes)):
-                InSAR_codes_string = InSAR_codes_string + str(InSAR_codes[ii]) + "_"
+            for ii in range(len(self.InSAR_codes)):
+                InSAR_codes_string = InSAR_codes_string + str(self.InSAR_codes[ii]) + "_"
             InSAR_codes_string = InSAR_codes_string + "F"
-        print(InSAR_codes)
+        print(self.InSAR_codes)
         self.outputdir= "./" + self.DaN_object.event_object.GBIS_insar_template.split('/')[-1][:-4] + "/" + InSAR_codes_string
         self.outputfile = self.outputdir + "/" + InSAR_codes_string +".mat"
         self.opt_model_vertex = self.outputdir +'/' + 'optmodel_vertex.mat'
         if os.path.isdir(self.outputdir):
             print("Inversion Results already present skipping")
         else:
-            self.eng.GBISrun(self.DaN_object.event_object.GBIS_insar_template,InSAR_codes,'n','F',self.number_trials,'n','n','n',nargout=0)
-       
-       
+           self.eng.GBISrun(self.DaN_object.event_object.GBIS_insar_template,self.InSAR_codes,'n','F',self.number_trials,'n','n','n',nargout=0)
+    
         output_matrix = loadmat(self.outputfile,squeeze_me=True)
         opt_model = np.array(output_matrix['invResults'][()].item()[-1])
         print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~optimal model results~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
@@ -469,9 +471,6 @@ class auto_GBIS:
             pass 
         else:
             self.eng.generateFinalReport(self.outputfile,self.number_trials*0.2,nargout=0)
-
-
-
         # print(opt_model)
         print([opt_model,'color','k','updipline','yes','projection','3D','origin',[self.DaN_object.event_object.time_pos_depth['Position'][1],self.DaN_object.event_object.time_pos_depth['Position'][0]],'final','yes','savedir',self.opt_model_vertex])
         self.eng.python_comp_drawmodel(self.outputfile,[float(self.DaN_object.event_object.time_pos_depth['Position'][1]),float(self.DaN_object.event_object.time_pos_depth['Position'][0])],self.opt_model_vertex,nargout=0)
@@ -524,7 +523,91 @@ class auto_GBIS:
                                             usgs_model)
 
         return 
-    
+    def create_catalog_entry(self,NP):
+        if os.path.isdir(self.path_to_data+'/'+ self.DaN_object.event_object.ID+'_catalog_entry'):
+            print('Made it here its a directory')
+            pass 
+        else:
+            print('made it here')
+            os.mkdir(self.path_to_data+'/'+ self.DaN_object.event_object.ID+'_catalog_entry/')
+            print('created directory')
+
+        catalog= self.path_to_data+'/'+ self.DaN_object.event_object.ID+'_catalog_entry' + '/' +self.DaN_object.event_object.ID+ '_entry.csv'
+        if NP == 1:
+            strike = self.opt_model[4] - 180 
+            if strike < 360:
+                strike  = strike + 360
+            SS = self.opt_model[7]
+            DS = self.opt_model[8]
+            rake = np.degrees(np.arctan(DS/SS))
+            total_slip = np.sqrt(SS**2 + DS**2)
+            mu = 3.2e10
+            length = self.opt_model[0]
+            width = self.opt_model[1]
+            M0_assuming_mu = mu*length*width*total_slip
+            Mw = (2/3)*np.log10(M0_assuming_mu) - 9.1 
+            dict_for_catalog ={'USGS ID': self.DaN_object.event_object.ID,
+                               'NP selected': NP,
+                                'USGS Mag': self.DaN_object.event_object.MTdict['magnitude'],
+                                'USGS Lat': self.DaN_object.event_object.time_pos_depth['Position'][0],
+                                'USGS Lon': self.DaN_object.event_object.time_pos_depth['Position'][1],
+                                'USGS Depth': self.DaN_object.event_object.time_pos_depth['Depth'],
+                                'USGS Moment Depth': self.DaN_object.event_object.MTdict['Depth_MT'],
+                                'USGS Strike': self.DaN_object.event_object.strike_dip_rake['strike'][0],
+                                'USGS Dip': self.DaN_object.event_object.strike_dip_rake['dip'][0],
+                                'USGS Rake': self.DaN_object.event_object.strike_dip_rake['rake'][0],
+                                'Nifgms': len(self.InSAR_codes),
+                                'NFrames': len(self.DaN_object.geoc_final_path),
+                                'InSAR Lat': self.GBIS_lat,
+                                'InSAR Lon': self.GBIS_lon,
+                                'InSAR Depth TR': self.opt_model[2],
+                                'InSAR Depth Centroid': self.opt_model[2] + ((width*1/2)*np.sin(np.abs(self.opt_model[3])*(np.pi/180))),
+                                'InSAR Strike': strike,
+                                'InSAR Dip': -self.opt_model[3],
+                                'InSAR Rake': rake,
+                                'InSAR Slip': total_slip,
+                                'Length': self.opt_model[0],
+                                'Width': self.opt_model[1],
+                                'InSAR Mw':Mw,
+                                }
+        elif NP == 2:
+            strike = self.opt_model[4] - 180 
+            if strike < 360:
+                strike  = strike + 360
+            SS = self.opt_model[7]
+            DS = self.opt_model[8]
+            rake = np.degrees(np.arctan(DS/SS))
+            total_slip = np.sqrt(SS**2 + DS**2)
+            mu = 3.2e10
+            length = self.opt_model[0]
+            width = self.opt_model[1]
+            M0_assuming_mu = mu*length*width*total_slip
+            Mw = (2/3)*np.log10(M0_assuming_mu) - 9.1 
+            dict_for_catalog ={'USGS ID': self.DaN_object.event_object.ID,
+                                'USGS Mag': self.DaN_object.event_object.MTdict['magnitude'],
+                                'USGS Lat': self.DaN_object.event_object.time_pos_depth['Position'][0],
+                                'USGS Lon': self.DaN_object.event_object.time_pos_depth['Position'][1],
+                                'USGS Depth': self.DaN_object.event_object.time_pos_depth['Depth'],
+                                'USGS Moment Depth': self.DaN_object.event_object.MTdict['Depth_MT'],
+                                'USGS Strike': self.DaN_object.event_object.strike_dip_rake['strike'][1],
+                                'USGS Dip': self.DaN_object.event_object.strike_dip_rake['dip'][1],
+                                'USGS Rake': self.DaN_object.event_object.strike_dip_rake['rake'][1],
+                                'Nifgms': len(self.InSAR_codes),
+                                'NFrames': len(self.DaN_object.geoc_final_path),
+                                'InSAR Lat': self.GBIS_lat,
+                                'InSAR Lon': self.GBIS_lon,
+                                'InSAR Depth TR': self.opt_model[2],
+                                'InSAR Depth Centroid': self.opt_model[2] + ((width*1/2)*np.sin(np.abs(self.opt_model[3])*(np.pi/180))),
+                                'InSAR Strike': strike,
+                                'InSAR Dip': -self.opt_model[3],
+                                'InSAR Rake': rake,
+                                'InSAR Slip': total_slip,
+                                'Length': self.opt_model[0],
+                                'Width': self.opt_model[1],
+                                'InSAR Mw':Mw}
+        df = pd.DataFrame([dict_for_catalog]) 
+        df.to_csv(path_or_buf=catalog)
+        return
     def plot_locations(self):
         if os.path.isdir(self.path_to_data+"/locations"):
             print('Made it here its a directory')
@@ -562,14 +645,17 @@ class auto_GBIS:
 if __name__ == "__main__":
     # # example event ID's us6000jk0t, us6000jqxc, us6000kynh,
     # preproc_object = DaN.deformation_and_noise("us6000jk0t",target_down_samp=1500,inv_soft='GBIS',single_ifgm=True,date_primary=20230108,date_secondary=20230213,stack=False,look_for_gacos=True,NP=2)
-    preproc_object = DaN.deformation_and_noise("us6000jk0t",target_down_samp=1500,inv_soft='GBIS',look_for_gacos=True,NP=2,all_coseis=True)
+    preproc_object = DaN.deformation_and_noise("us6000lfn5",target_down_samp=1500,inv_soft='GBIS',look_for_gacos=True,NP=1,all_coseis=False,date_primary=20231007,date_secondary=20231101,single_ifgm=False,frame=['013A_05597_131313','020D_05533_131313']) # Iran_turkey 
+    # preproc_object = DaN.deformation_and_noise("us6000kynh",target_down_samp=1500,inv_soft='GBIS',look_for_gacos=True,NP=2,all_coseis=True) # Tanzania 
+    # preproc_object = DaN.deformation_and_noise("us6000d3zh",target_down_samp=1500,inv_soft='GBIS',look_for_gacos=True,NP=2,all_coseis=True) # Croatia
     # preproc_object = DaN.deformation_and_noise("us7000g9zq",target_down_samp=2000,inv_soft='GBIS',single_ifgm=True,date_primary=20211224,date_secondary=20220117,stack=False,look_for_gacos=True,frame='128A_05172_131313',NP=2)
     # preproc_object = DaN.deformation_and_noise("us6000bdq8",target_down_samp=1500,inv_soft='GBIS',single_ifgm=True,date_primary=20200713,date_secondary=20200830,stack=False,all_coseis=True)
     # preproc_object = DaN.deformation_and_noise("us6000bdq8",target_down_samp=1500,inv_soft='GBIS',single_ifgm=True,date_primary=None,date_secondary=None,stack=False,all_coseis=True)
     # preproc_object = DaN.deformation_and_noise("us6000ldpg",target_down_samp=1500,inv_soft='GBIS',date_primary=20230926,date_secondary=20231008,frame='020D_05533_131313')
     # preproc_object = DaN.deformation_and_noise("us7000ljvg",target_down_samp=1500,inv_soft='GBIS',date_primary=20231202,date_secondary=20231226,frame='135D_05421_131313')
     # preproc_object = DaN.deformation_and_noise("us6000lfn5",target_down_samp=1500,inv_soft='GBIS',date_primary=20231007,date_secondary=20231019,frame='013A_05597_131313',single_ifgm=True)
-    grond_object = auto_GBIS(preproc_object,'/Users/jcondon/phd/code/auto_inv/GBIS.location',NP=2,number_trials=3e4)
+    # GBIS_object = auto_GBIS(preproc_object,'/Users/jcondon/phd/code/auto_inv/GBIS.location',NP=1,number_trials=1e5)
+    GBIS_object = auto_GBIS(preproc_object,'/Users/jcondon/phd/code/auto_inv/GBIS.location',NP=1,number_trials=1e5)
 
 
 

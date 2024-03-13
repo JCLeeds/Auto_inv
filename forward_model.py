@@ -235,7 +235,7 @@ def forward_modelling_para_gmt(ifgix):
         for ii in range(0,3):
                 fig.colorbar(frame=["x+lLOS displacment(m)", "y+lm"], position="JMB",projection='M?c',panel=[0,ii]) # ,panel=[1,0]
         # fig.show(method='external')
-        fig.savefig(os.path.join(os.path.join(geoc_ml_path),ifgd+'/'+"forward_model_comp.png"))
+        fig.savefig(os.path.join(os.path.join(geoc_ml_path),ifgd+"forward_model_comp.png"))
 
 
 
