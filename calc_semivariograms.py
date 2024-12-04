@@ -5,13 +5,13 @@ import LiCSBAS_io_lib as LiCS_lib
 import os 
 import LiCSBAS_tools_lib as LiCS_tools
 import multiprocessing as multi
-from lmfit.model import *
+from lmfit import Model
 import matplotlib.pyplot as plt
 from scipy import stats
 from matplotlib.colors import LinearSegmentedColormap as LSC
 from matplotlib import pyplot as plt
 from cmcrameri import cm
-
+import shutil
 
 
 
@@ -57,10 +57,16 @@ def calculate_semivarigrams(geoc_ml_path):
     outdir = geoc_ml_path
     slc_mli_par_path = os.path.join(geoc_ml_path,"slc.mli.par")
 
+    if os.path.exists(os.path.join(outdir, 'semivariograms')):
+        shutil.rmtree(os.path.join(outdir, 'semivariograms'))
+
+    # if not os.path.exists(os.path.join(outdir, 'semivariograms')):
+    os.mkdir(os.path.join(outdir, 'semivariograms'))
+
 
     ifgdates2 = ifgdates
     n_ifg2 = len(ifgdates2)
-
+    dict_total = []
     if n_ifg-n_ifg2 > 0:
         print("  {0:3}/{1:3} masked unw and cc already exist. Skip".format(n_ifg-n_ifg2, n_ifg), flush=True)
 
@@ -69,206 +75,160 @@ def calculate_semivarigrams(geoc_ml_path):
         if n_para > n_ifg2:
             n_para = n_ifg2
          
-            print('  {} parallel processing...'.format(n_para), flush=True)
-            p = q.Pool(n_para)
-            output_dict = p.map(calc_semi_para, range(n_ifg2))
-            p.close()
-            dates_and_noise_dict = {}
-            for ii in range(len(output_dict)):
-                dates_and_noise_dict = dates_and_noise_dict | output_dict[ii]
+        # print('  {} parallel processing...'.format(n_para), flush=True)
+        # p = q.Pool(n_para)
+        # dates_and_noise_dict = p.map(calc_semi_para, range(n_ifg2))
+        # p.close()
+        dates_and_noise_dict = {}
+        for ii in range(n_ifg2):
+            dict_total.append(calc_semi_para(ii))
+        for ii in range(len(dict_total)):
+            dates_and_noise_dict = dates_and_noise_dict | dict_total[ii]
+        # for ii in range(len(output_dict)):
+        #     dates_and_noise_dict = dates_and_noise_dict | output_dict[ii]
 
     return dates_and_noise_dict
 
 
-    
+# def calculate_semivariogram(Lat, Lon, ifgm):
+#         #untested function
+#         """
+#         Calculate the semivariogram of a grid of Lat Lons with a value ifgm at each point
+#         @param Lat: 1D array of latitudes
+#         @param Lon: 1D array of longitudes
+#         @param ifgm: 2D array of values at each (Lat, Lon) point
+#         @return: semivariogram model
+#         """
+#         XX, YY = np.meshgrid(Lon, Lat)
+#         XX = XX.flatten()
+#         YY = YY.flatten()
+#         ifgm = ifgm.flatten()
+
+#         # Drop all nan data
+#         xdist = XX[~np.isnan(ifgm)]
+#         ydist = YY[~np.isnan(ifgm)]
+#         ifgm = ifgm[~np.isnan(ifgm)]
+
+#         # Calculate distances between random points
+#         n_pix = int(1e6)
+#         pix_1 = np.random.choice(np.arange(ifgm.shape[0]), n_pix)
+#         pix_2 = np.random.choice(np.arange(ifgm.shape[0]), n_pix)
+#         dists = np.sqrt(((xdist[pix_1] - xdist[pix_2]) ** 2) + ((ydist[pix_1] - ydist[pix_2]) ** 2))
+#         vals = abs((ifgm[pix_1] - ifgm[pix_2])) ** 2
+
+#         medians, binedges = stats.binned_statistic(dists, vals, 'median', bins=500)[:-1]
+#         stds = stats.binned_statistic(dists, vals, 'std', bins=500)[0]
+#         bincenters = (binedges[0:-1] + binedges[1:]) / 2
+
+#         mod = Model(spherical)
+#         mod.set_param_hint('p', value=np.percentile(medians, 75))
+#         mod.set_param_hint('n', value=0)
+#         mod.set_param_hint('r', value=8000)
+#         result = mod.fit(medians, d=bincenters)
+
+#         try:
+#             sill = result.best_values['p']
+#             model_semi = (result.best_values['n'] + sill * ((3 * bincenters) / (2 * result.best_values['r']) - 0.5 * ((bincenters ** 3) / (result.best_values['r'] ** 3))))
+#             model_semi[np.where(bincenters > result.best_values['r'])[0]] = result.best_values['n'] + sill
+#         except:
+#             sill = 100
+#             model_semi = np.zeros(bincenters.shape) * np.nan
+
+#         return bincenters, medians, model_semi
 
 
 def calc_semi_para(ifgix):
-        ifgd = ifgdates2[ifgix]
-        unw_path = os.path.join(os.path.join(outdir,ifgd),ifgd+".unw")   
-        ifgm = LiCS_lib.read_img(unw_path,length,width)
-      
-        ifgm = -ifgm*0.0555/(4*np.pi)   # Added by JC to convert to meters deformation. ----> rad to m posative is -LOS
+    ifgd = ifgdates2[ifgix]
+    unw_path = os.path.join(outdir, ifgd, f"{ifgd}.unw")
+    ifgm = LiCS_lib.read_img(unw_path, length, width)
+    ifgm = -ifgm * 0.0555 / (4 * np.pi)  # Convert to meters deformation
 
-        Lat = np.arange(0, (length + 1) * pixsp_r, pixsp_r)
-        Lon = np.arange(0, (width + 1) * pixsp_a, pixsp_a)
-        Lat = Lat[:length]
-        Lon = Lon[:width]
+    Lat = np.arange(0, length * pixsp_r, pixsp_r)
+    Lon = np.arange(0, width * pixsp_a, pixsp_a)
 
+    XX, YY = np.meshgrid(Lon, Lat)
+    XX = XX[:length,:width]
+    YY = YY[:length,:width]
 
-        XX, YY = np.meshgrid(Lon, Lat)
-        XX = XX.flatten()
-        YY = YY.flatten()
-      
-        mask_sig = LiCS_lib.read_img(os.path.join(outdir,"signal_mask"),length,width)
-        masked_pixels = np.where(mask_sig==0)
-        ifgm[masked_pixels] = np.nan
-        ifgm_orig = ifgm.copy()
-      
+    print(np.shape(XX), np.shape(YY), np.shape(ifgm))  
+    mask_sig = LiCS_lib.read_img(os.path.join(outdir, "signal_mask"), length, width)
+    ifgm[mask_sig == 0] = np.nan
 
-      
-        mask = LiCS_lib.read_img(os.path.join(outdir,"mask"),length,width)
-        masked_pixels = np.where(mask==0)
-        ifgm[masked_pixels] = np.nan
-        ifgm_orig = ifgm.copy()
-        
+    mask = LiCS_lib.read_img(os.path.join(outdir, "mask"), length, width)
+    ifgm[mask == 0] = np.nan
 
-        # ifgm[abs(ifgm) > (semi_mask_thresh)] = np.nan
-        ifgm_nan = ifgm.copy()
-        ifgm_deramp = ifgm.copy()
-        ifgm = ifgm.flatten()
-        # Drop all nan data
-        xdist = XX[~np.isnan(ifgm)]
-        ydist = YY[~np.isnan(ifgm)]
+    Afit, _ = LiCS_tools.fit2d(ifgm, w=None, deg="1")
+    ifgm = (ifgm - Afit)
 
-        maximum_dist = np.sqrt(((np.max(xdist) - np.min(xdist)) ** 2) + ((np.max(ydist) - np.min(ydist) ** 2)))
-        ifgm = ifgm[~np.isnan(ifgm)]
+    XX, YY = XX.flatten(), YY.flatten()
+    ifgm = ifgm.flatten()
+    ifgm_not_masked = ifgm
+    valid_mask = ~np.isnan(ifgm)
+    print(np.shape(XX), np.shape(YY), np.shape(ifgm), np.shape(valid_mask))
+    xdist, ydist = XX[valid_mask], YY[valid_mask]
+    ifgm = ifgm[valid_mask]
 
+    maximum_dist = np.sqrt((xdist.ptp() ** 2) + (ydist.ptp() ** 2))
 
-        # ifgm = scipy.signal.detrend(ifgm)
-        # Detrend code written by J Condon  
-        ifgm_deramp, ydist, xdist = LiCS_tools.invert_plane(ifgm,ydist,xdist)
-        ifgm = ifgm_deramp
-    
+    n_pix = int(1e6)
+    pix_1, pix_2 = np.array([]), np.array([])
 
-        # calc from lmfit
-        # mod = Model(spherical)
-        medians = np.array([])
-        bincenters = np.array([])
-        stds = np.array([])
+    its = 0
+    while pix_1.size < n_pix and its < 5:
+        its += 1
+        pix_1 = np.concatenate([pix_1, np.random.choice(ifgm.size, n_pix * 2)])
+        pix_2 = np.concatenate([pix_2, np.random.choice(ifgm.size, n_pix * 2)])
 
-        # Find random pairings of pixels to check
-        # Number of random checks
-        n_pix = int(1e6)
+        unique_pix = np.unique(np.vstack([pix_1, pix_2]).T, axis=0)
+        pix_1, pix_2 = unique_pix[:, 0].astype(int), unique_pix[:, 1].astype(int)
 
-        pix_1 = np.array([])
-        pix_2 = np.array([])
+        dists = np.sqrt((xdist[pix_1] - xdist[pix_2]) ** 2 + (ydist[pix_1] - ydist[pix_2]) ** 2)
+        valid = dists <= (maximum_dist * 0.5)
+        pix_1, pix_2 = pix_1[valid], pix_2[valid]
 
-        # Going to look at n_pix pairs. Only iterate 5 times. Life is short
-        its = 0
-         # Default Value
-        while pix_1.shape[0] < n_pix and its < 5:
-            its += 1
-            # Create n_pix random selection of data points (Random selection with replacement)
-            # Work out too many in case we need to remove duplicates
-            pix_1 = np.concatenate([pix_1, np.random.choice(np.arange(ifgm.shape[0]), n_pix * 2)])
-            pix_2 = np.concatenate([pix_2, np.random.choice(np.arange(ifgm.shape[0]), n_pix * 2)])
+    if n_pix > pix_1.size:
+        n_pix = pix_1.size
 
-            # Find where the same pixel is selected twice
-            duplicate = np.where(pix_1 == pix_2)[0]
-            pix_1 = np.delete(pix_1, duplicate)
-            pix_2 = np.delete(pix_2, duplicate)
+    pix_1, pix_2 = pix_1[:n_pix].astype(int), pix_2[:n_pix].astype(int)
+    dists = np.sqrt((xdist[pix_1] - xdist[pix_2]) ** 2 + (ydist[pix_1] - ydist[pix_2]) ** 2)
+    vals = (ifgm[pix_1] - ifgm[pix_2]) ** 2
 
-            # Drop duplicate pairings
-            unique_pix = np.unique(np.vstack([pix_1, pix_2]).T, axis=0)
-            pix_1 = unique_pix[:, 0].astype('int')
-            pix_2 = unique_pix[:, 1].astype('int')
+    medians, binedges, _ = stats.binned_statistic(dists, vals, 'median', bins=50)
+    stds, _, _ = stats.binned_statistic(dists, vals, 'std', bins=50)
+    bincenters = (binedges[:-1] + binedges[1:]) / 2
 
-            # Remove pixels with a seperation of more than 225 km 
-            dists = np.sqrt(((xdist[pix_1] - xdist[pix_2]) ** 2) + ((ydist[pix_1] - ydist[pix_2]) ** 2))
-            # # Max Lag solution to end member issue from J. McGrath
-            # pix_1 = np.delete(pix_1, np.where(dists > (max_lag * 1000))[0])
-            # pix_2 = np.delete(pix_2, np.where(dists > (max_lag * 1000))[0])
+    mod = Model(spherical)
+    mod.set_param_hint('p', value=np.percentile(medians, 75))
+    mod.set_param_hint('n', value=0)
+    mod.set_param_hint('r', value=8000)
+    result = mod.fit(medians, d=bincenters)
 
-            # Max Dist solution to end member issue J. Condon 
-            pix_1 = np.delete(pix_1, np.where(dists > (maximum_dist*0.85))[0])
-            pix_2 = np.delete(pix_2, np.where(dists > (maximum_dist*0.85))[0])
+    try:
+        sill = result.best_values['p']
+        model_semi = (result.best_values['n'] + sill * ((3 * bincenters) / (2 * result.best_values['r']) - 0.5 * (bincenters ** 3) / (result.best_values['r'] ** 3)))
+        model_semi[bincenters > result.best_values['r']] = result.best_values['n'] + sill
+    except:
+        sill = 100
+        model_semi = np.full(bincenters.shape, np.nan)
 
-        # In case of early ending
-        if n_pix > len(pix_1):
-            n_pix = len(pix_1)
+    fig, axs = plt.subplots(2, 2, figsize=(12, 12))
+    axs[0, 0].imshow(ifgm_not_masked.reshape(length, width))
+    axs[0, 0].set_title(f'Original {ifgd}')
+    axs[0, 1].imshow(ifgm_not_masked.reshape(length, width))
+    axs[0, 1].set_title(f'NaN {ifgd}')
+    scatter = axs[1, 0].scatter(bincenters, medians, c=stds)
+    axs[1, 0].plot(bincenters, model_semi)
+    axs[1, 0].set_title(f'Partial Sill: {sill:.6f}, Nugget: {result.best_values["n"]:.6f}, Range: {result.best_values["r"] / 1000:.6f} km')
+    fig.colorbar(scatter, ax=axs[1, 0])
 
-        # Trim to n_pix, and create integer array
-        pix_1 = pix_1[:n_pix].astype('int')
-        pix_2 = pix_2[:n_pix].astype('int')
+    # Remove the unused axis
+    fig.delaxes(axs[1, 1])
 
-        # Calculate distances between random points
-        dists = np.sqrt(((xdist[pix_1] - xdist[pix_2]) ** 2) + ((ydist[pix_1] - ydist[pix_2]) ** 2))
-        # Calculate squared difference between random points
-        vals = abs((ifgm[pix_1] - ifgm[pix_2])) ** 2
+    plt.savefig(os.path.join(outdir, 'semivariograms', f'semivariogram_{ifgd}.png'))
+    plt.close()
 
-        medians, binedges = stats.binned_statistic(dists, vals, 'median', bins=500)[:-1]
-        stds = stats.binned_statistic(dists, vals, 'std', bins=500)[0]
-        bincenters = (binedges[0:-1] + binedges[1:]) / 2
-        mod = Model(spherical)
-
-        # set range as moving average. 
-
-        # try:
-        # REMOVED JACKS WEIGHTING NOT SURE IF THIS IS CORRECT
-        mod.set_param_hint('p', value=np.percentile(medians, 75))  # guess maximum variance
-        mod.set_param_hint('n', value=0)  # guess 0
-        mod.set_param_hint('r', value=8000)  # guess 100 km
-        sigma = stds + np.power(bincenters / max(bincenters), 2)
-        sigma = stds * (1 + (max(bincenters) / bincenters))
-        # result = mod.fit(medians, d=bincenters, weights=sigma)
-        result = mod.fit(medians, d=bincenters)
-    
-
-        # except:
-        #     # Try smaller ranges
-        #     n_bins = len(bincenters)
-        #     try:
-        #         bincenters = bincenters[:int(n_bins * 3 / 4)]
-        #         stds = stds[:int(n_bins * 3 / 4)]
-        #         medians = medians[:int(n_bins * 3 / 4)]
-        #         sigma = stds + np.power(bincenters / max(bincenters), 3)
-        #         sigma = stds * (1 + (max(bincenters) / bincenters))
-        #         result = mod.fit(medians, d=bincenters, weights=sigma)
-        #     except:
-        #         try:
-        #             bincenters = bincenters[:int(n_bins / 2)]
-        #             stds = stds[:int(n_bins / 2)]
-        #             medians = medians[:int(n_bins / 2)]
-        #             sigma = stds + np.power(bincenters / max(bincenters), 3)
-        #             sigma = stds * (1 + (max(bincenters) / bincenters))
-        #             result = mod.fit(medians, d=bincenters, weights=sigma)
-        #         except:
-        #             sill = 100
-        #             print('Ifgm  Failed to solve - setting sill to {}'.format(sill))
-
-        try:
-            # Print Sill (ie variance)
-            sill = result.best_values['p']
-            model_semi = (result.best_values['n'] + sill * ((3 * bincenters)/ (2 * result.best_values['r']) - 0.5*((bincenters**3) / (result.best_values['r']**3))))
-            model_semi[np.where(bincenters > result.best_values['r'])[0]] = result.best_values['n'] + sill
-        except:
-            sill = 100
-            model_semi = np.zeros(bincenters.shape) * np.nan
-
-        if not os.path.exists(os.path.join(outdir, 'semivariograms')):
-            os.mkdir(os.path.join(outdir, 'semivariograms'))
-
-        fig=plt.figure(figsize=(12,12))
-        ax=fig.add_subplot(2,2,1)
-        im = ax.imshow(ifgm_orig)
-        plt.title('Original {}'.format(ifgd))
-        fig.colorbar(im, ax=ax)
-        ax=fig.add_subplot(2,2,2)
-        im = ax.imshow(ifgm_nan)
-        plt.title('NaN {}'.format(ifgd))
-        fig.colorbar(im, ax=ax)
-        ax=fig.add_subplot(2,2,3)
-        im = ax.scatter(xdist,ydist,c=ifgm_deramp) # remeber this might be breaking my code
-        plt.title('NaN + Deramp {}'.format(ifgd))
-        fig.colorbar(im, ax=ax)
-        ax=fig.add_subplot(2,2,4)
-        im = ax.scatter(bincenters, medians, c=sigma, label=ifgd)
-        ax.plot(bincenters, model_semi, label='{} model'.format(ifgd))
-        fig.colorbar(im, ax=ax)
-        try:
-            plt.title('Partial Sill: {:.6f}, Nugget: {:.6f}, Range: {:.6f} km'.format(sill, result.best_values['n'],result.best_values['r']/1000))
-        except:
-            plt.title('Semivariogram Failed')
-        if sill == sill:
-            plt.savefig(os.path.join(outdir, 'semivariograms', 'semivarigram{}X.png'.format(ifgd)))
-        else:
-            plt.savefig(os.path.join(outdir, 'semivariograms', 'semivarigram{}.png'.format(ifgd)))
-        plt.close()
-        output_dict[ifgd] = [sill ,result.best_values['n'], result.best_values['r']]
-        print(output_dict)
-        return output_dict
-
+    output_dict[ifgd] = [sill, result.best_values['n'], result.best_values['r']]
+    return output_dict
 
 
 
@@ -298,3 +258,9 @@ def exponential(d,p,n,r):
     if r>d.max():
         r=d.max()-1
     return p*(1-np.exp((-d)/r)) + n
+
+
+
+if __name__ == "__main__":
+    dates_and_noise_dict = calculate_semivarigrams("/uolstore/Research/a/a285/homes/ee18jwc/code/auto_inv/us70007v9g_insar_processing/GEOC_072A_05090_131313_floatml_masked_GACOS_Corrected_clipped_signal_masked_QAed")
+    print(dates_and_noise_dict)

@@ -247,9 +247,9 @@ def read_ENU_to_phi_theta(path_to_date,length,width):
     Written by John Condon 
     """
 
-    los_n = getLOS_binary(os.path.join(path_to_date,"N.geo"),length,width)
-    los_e = getLOS_binary(os.path.join(path_to_date,"E.geo"),length,width)
-    los_u = getLOS_binary(os.path.join(path_to_date,"U.geo"),length,width)
+    los_n = read_img(os.path.join(path_to_date,"N.geo"),length,width)
+    los_e = read_img(os.path.join(path_to_date,"E.geo"),length,width)
+    los_u = read_img(os.path.join(path_to_date,"U.geo"),length,width)
     los_n[los_n==0] = np.nan
     los_e[los_e==0] = np.nan
     los_u[los_u==0] = np.nan

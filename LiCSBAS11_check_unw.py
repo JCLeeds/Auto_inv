@@ -44,6 +44,10 @@ LiCSBAS11_check_unw.py -d ifgdir [-t tsadir] [-c coh_thre] [-u unw_thre]
 """
 #%% Change log
 '''
+v1.3.4 20240528 John Condon,
+- edited this version to give custom results for automatic inversion 
+bad ifgm defined on coverage of each ifgm, avrg coherence, edge of frame effects and baselines in future.
+
 v1.3.3 20210402 Yu Morioshita, GSI
  - Treat all nan as bad ifg
  - Raise error if all ifgs are bad
@@ -74,6 +78,11 @@ import LiCSBAS_io_lib as io_lib
 import LiCSBAS_tools_lib as tools_lib
 import LiCSBAS_plot_lib as plot_lib
 import pylab as plt 
+import glob
+import multiprocessing as multi
+import mosiac_images as mi
+from PIL import Image
+import pylab as plt 
 class Usage(Exception):
     """Usage context manager"""
     def __init__(self, msg):
@@ -82,16 +91,29 @@ class Usage(Exception):
 
 #%% Main
 def main(argv=None,auto=None):
-
+    global good_ifgdates, length, width, in_dir, dates_at_the_edge, clipped_dir
     #%% Check argv
     if argv == None:
         argv = sys.argv
     if auto:
         print(len(auto))
         in_dir=auto[0]
-        out_dir=auto[1]
-        cc_ifg_thre = auto[2]
-        coverage = auto[3]
+        clipped_dir = auto[1]
+        out_dir=auto[2]
+        cc_ifg_thre = auto[3]
+        coverage = auto[4]
+    
+    try:
+        n_para = len(os.sched_getaffinity(0))
+    except:
+        n_para = multi.cpu_count()
+
+
+   
+    
+    
+    q = multi.get_context('fork')
+
     
 
     start = time.time()
@@ -101,7 +123,7 @@ def main(argv=None,auto=None):
 
 
     #%% Set default
-    ifgdir = in_dir
+    ifgdir = clipped_dir
     tsadir = out_dir
     coh_thre = cc_ifg_thre
     unw_cov_thre = coverage
@@ -184,13 +206,13 @@ def main(argv=None,auto=None):
     print("\nSize         : {} x {}".format(width, length), flush=True)
 
     ### Copy dempar and mli[png|par]
-    for file in ['slc.mli.par', 'EQA.dem_par']:
-        if os.path.exists(os.path.join(ifgdir, file)):
-            shutil.copy(os.path.join(ifgdir, file), infodir)
+    # for file in ['slc.mli.par', 'EQA.dem_par']:
+    #     if os.path.exists(os.path.join(ifgdir, file)):
+    #         shutil.copy(os.path.join(ifgdir, file), infodir)
 
-    for file in ['slc.mli', 'slc.mli.png', 'hgt', 'hgt.png']:
-        if os.path.exists(os.path.join(ifgdir, file)):
-            shutil.copy(os.path.join(ifgdir, file), resultsdir)
+    # for file in ['slc.mli', 'slc.mli.png', 'hgt', 'hgt.png']:
+    #     if os.path.exists(os.path.join(ifgdir, file)):
+    #         shutil.copy(os.path.join(ifgdir, file), resultsdir)
 
 
     #%% Read data
@@ -201,29 +223,31 @@ def main(argv=None,auto=None):
 
     ### Read data and calculate
     print('\nReading unw and cc data...', flush=True)
-    ## First, identify valid area (n_unw>im)
+    # First, identify valid area (n_unw>im)
     for ifgix, ifgd in enumerate(ifgdates):
         if np.mod(ifgix,100) == 0:
             print("  {0:3}/{1:3}th unw to identify valid area...".format(ifgix, n_ifg), flush=True)
         unwfile = os.path.join(ifgdir, ifgd, ifgd+'.unw')
         unw = io_lib.read_img(unwfile, length, width)
-        print('max unwrap value')
-        print(np.max(unw))
+        # print('max unwrap value')
+        # print(np.nanmax(unw))
+        # print(unw[~np.isnan(unw)])
         unw[unw == 0] = np.nan # Fill 0 with nan
         # print(~np.isnan(unw))
-        print('every 1000 unw value')
-        print(unw[0::1000])
+        # print('every 1000 unw value')
+        # print(unw[0::1000])
         n_unw += ~np.isnan(unw) # Summing number of unnan unw
 
     ## Identify valid area and calc rate_cov
-    bool_valid = (n_unw>=n_im)
+    print(n_im)
+    bool_valid = (n_unw>=1) # JC edit changed from percentage of each ifgm that has more non nan pixels in that spot than nimages.
     n_unw_valid = bool_valid.sum()
-    print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~checker~~~~~~~~~~~~~~~~~~')
-    print('imdates=' + str(imdates))
-    print('nim=' + str(n_im))
-    print('bool_valid=' + str(bool_valid))
-    print('n_unw_valid=' + str(n_unw_valid))
-    print('n_unw=' +str(n_unw) )
+    # print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~checker~~~~~~~~~~~~~~~~~~')
+    # print('imdates=' + str(imdates))
+    # print('nim=' + str(n_im))
+    # print('bool_valid=' + str(bool_valid))
+    # print('n_unw_valid=' + str(n_unw_valid))
+    # print('n_unw=' +str(n_unw) )
 
     ## Read cc and unw data
     for ifgix, ifgd in enumerate(ifgdates):
@@ -247,6 +271,7 @@ def main(argv=None,auto=None):
             coh = io_lib.read_img(ccfile, length, width)
 
         coh_avg_ifg.append(np.nanmean(coh[bool_valid])) # Use valid area only
+        
 
     rate_cov = np.array(n_unw_ifg)/n_unw_valid
 
@@ -291,6 +316,14 @@ def main(argv=None,auto=None):
                   .format(rasorg), file=sys.stderr)
             return 2
 
+        ### For stats file
+        ix_primary = imdates.index(ifgd[:8])
+        ix_secondary = imdates.index(ifgd[-8:])
+        bperp_ifg = bperp[ix_secondary]-bperp[ix_primary]
+        mday = dt.datetime.strptime(ifgd[:8], '%Y%m%d').toordinal()
+        sday = dt.datetime.strptime(ifgd[-8:], '%Y%m%d').toordinal()
+        dt_ifg = sday-mday
+
         ### Identify bad ifgs and link ras
         if rate_cov[i] < unw_cov_thre or coh_avg_ifg[i] < coh_thre or \
            np.isnan(rate_cov[i]) or np.isnan(coh_avg_ifg[i]):
@@ -302,13 +335,7 @@ def main(argv=None,auto=None):
             os.symlink(os.path.relpath(rasorg, ifg_rasdir), os.path.join(ifg_rasdir, rasname))
             rm_flag = ''
 
-        ### For stats file
-        ix_primary = imdates.index(ifgd[:8])
-        ix_secondary = imdates.index(ifgd[-8:])
-        bperp_ifg = bperp[ix_secondary]-bperp[ix_primary]
-        mday = dt.datetime.strptime(ifgd[:8], '%Y%m%d').toordinal()
-        sday = dt.datetime.strptime(ifgd[-8:], '%Y%m%d').toordinal()
-        dt_ifg = sday-mday
+  
 
         print('{0}  {1:6.1f}  {2:3}   {3:5.3f}   {4:5.3f} {5}'.format(ifgd, bperp_ifg, dt_ifg, rate_cov[i],  coh_avg_ifg[i], rm_flag), file=fstats)
 
@@ -322,50 +349,172 @@ def main(argv=None,auto=None):
         for i, ifgd in enumerate(bad_ifgdates):
             print('{}'.format(ifgd), file=f)
             print('{}  {:5.3f}  {:5.3f}'.format(ifgd, rate_cov[ixs_bad_ifgdates[i]],  coh_avg_ifg[ixs_bad_ifgdates[i]]), flush=True)
-
-    ### Raise error if all ifgs are bad
+    f.close()
+    ### Raise error if all ifgs are bad    # files = glob.glob(os.path.join(in_dir, '*'))
+        # for file in files:
+        #     if not os.path.isdir(file): #not copy directory, only file
+        #         print('Copy {}'.format(os.path.basename(file)), flush=True)
+        #         shutil.copy(file, output_geoc_ml_path)
+    all_bad = False
     if len(bad_ifgdates) == n_ifg:
-        raise ValueError('All ifgs are regarded as bad!\nChange the parameters or check the input ifgs.\n')
+        all_bad = True 
+      
+    #     raise ValueError('All ifgs are regarded as bad!\nChange the parameters or check the input ifgs.\n')
+
+    
+
+    if all_bad is False:
+        #%% Identify removed image and output file
+        good_ifgdates = list(set(ifgdates)-set(bad_ifgdates))
+        good_ifgdates.sort()
+        n_ifg2 = len(good_ifgdates)
+        dates_at_the_edge = []
+        if n_ifg2 > 0:
+            ### Mask with parallel processing
+            if n_para > n_ifg2:
+                n_para = n_ifg2         
+                print('  {} parallel processing...'.format(n_para), flush=True)
+                p = q.Pool(n_para)
+                dates_at_the_edge.append(p.map(check_edge_of_frame, range(n_ifg2)))
+                p.close()
+    
+        print("~~~~~~~~~~~~~~~~~~~list of ifgms with signal at edge~~~~~~~~~~~~~~~~~~")
+        print(dates_at_the_edge)
+        print("~~~~~~~~~~~~~~~~~~~list of ifgms with signal at edge~~~~~~~~~~~~~~~~~~")
+        if len(dates_at_the_edge) == 0:
+            good_ifgdates = list(set(good_ifgdates))
+        else:
+            good_ifgdates = list(set(good_ifgdates)-set(dates_at_the_edge[0]))
+        good_ifgdates.sort()
+        print('~~~~~~~~~~~~~~~~~~~list of good ifgms~~~~~~~~~~~~~~~')
+        print(good_ifgdates)
+        print('~~~~~~~~~~~~~~~~~~~list of good ifgms~~~~~~~~~~~~~~~')
+        good_imdates = tools_lib.ifgdates2imdates(good_ifgdates)
+        bad_imdates = list(set(imdates)-set(good_imdates))
+        bad_imdates.sort()
+        ### Output list of removed image
+        bad_imfile = os.path.join(tsadir, 'removed_dates.txt')
+        removed_dates = list(set(ifgdates)-set(good_ifgdates))
+        with open(bad_imfile, 'w') as f:
+            for date in removed_dates:
+                f.write(date + '\n')
+        f.close()
+
+        
+                
+
+        #%% Plot network
+        pngfile = os.path.join(netdir, 'network11_all.png')
+        plot_lib.plot_network(ifgdates, bperp, [], pngfile)
+
+        pngfile = os.path.join(netdir, 'network11.png')
+        plot_lib.plot_network(ifgdates, bperp, bad_ifgdates, pngfile)
+
+        pngfile = os.path.join(netdir, 'network11_nobad.png')
+        plot_lib.plot_network(ifgdates, bperp, bad_ifgdates, pngfile, plot_bad=False)
+    
+        elapsed_time = time.time()-start
+        hour = int(elapsed_time/3600)
+        minite = int(np.mod((elapsed_time/60),60))
+        sec = int(np.mod(elapsed_time,60))
+        print("\nElapsed time: {0:02}h {1:02}m {2:02}s".format(hour,minite,sec))
+
+        print('\n{} Successfully finished!!\n'.format(os.path.basename(argv[0])))
+        print('Output directory: {}\n'.format(os.path.relpath(tsadir)))
+
+        for i, ifgd in enumerate(good_ifgdates):
+            rasname = ifgdates[i]+'.unw'+suffix
+            rasorg = os.path.join(ifgdir, ifgdates[i], rasname)
+            
+        # ifgdates2 = []
+        print("~~~~~~~~~IFGMS PASSING COHERANCE THRESHOLD~~~~~~~~~~~")
+        for ifgix, ifgd in enumerate(good_ifgdates):
+                print(ifgd)
+                out_dir1 = os.path.join(tsadir, ifgd)
+                in_dir1 = os.path.join(in_dir,ifgd)
+                shutil.copytree(os.path.join(in_dir1), os.path.join(out_dir1))
+        print("~~~~~~~~~IFGMS PASSING COHERANCE THRESHOLD~~~~~~~~~~~")      
+
+        # if len(good_ifgdates) > 0:
+        #     image_list = []
+        #     dates_list_title = [] 
+        #     for ifgix, ifgd in enumerate(good_ifgdates): 
+        #         out_dir1 = os.path.join(tsadir, ifgd)
+        #         unwfile_c = os.path.join(out_dir1, ifgd+'_signal_masked.unw')
+        #         if os.path.isfile(unwfile_c + '.png'):
+        #             image_list.append(np.asarray(Image.open(unwfile_c + '.png')))
+        #             dates_list_title.append(ifgd)
+
+        #     if len(image_list) > 3:
+        #         num_cols = 3
+        #     else:
+        #         num_cols = len(image_list)
+
+        #     figure = mi.show_image_list(list_images=image_list, 
+        #                 list_titles=None,
+        #                 num_cols=num_cols,
+        #                 figsize=(50, 50),
+        #                 grid=False,
+        #                 title_fontsize=10)
+        #     figure.savefig(os.path.join(out_dir,'All_ifgms_easy_look_up_dates_used.png'),bbox_inches='tight')
+        #     plt.close('all')
+        
+        # if len(removed_dates) > 0:
+        #     image_list = []
+        #     dates_list_title = [] 
+        #     for ifgix, ifgd in enumerate(removed_dates): 
+        #         unw_dir1 = os.path.join(ifgdir, ifgd)
+        #         unwfile_c = os.path.join(unw_dir1, ifgd+'_signal_masked.unw')
+        #         if os.path.isfile(unwfile_c +'.png'):
+        #             image_list.append(np.asarray(Image.open(unwfile_c + '.png')))
+        #             dates_list_title.append(ifgd)
+
+        #     if len(image_list) > 3:
+        #         num_cols = 3
+        #     else:
+        #         num_cols = len(image_list)
+
+        #     figure = mi.show_image_list(list_images=image_list, 
+        #                 list_titles=None,
+        #                 num_cols=num_cols,
+        #                 figsize=(50, 50),
+        #                 grid=False,
+        #                 title_fontsize=10)
+        #     figure.savefig(os.path.join(out_dir,'All_ifgms_easy_look_up_dates_removed.png'),bbox_inches='tight')
+        #     plt.close('all')
 
 
-    #%% Identify removed image and output file
-    good_ifgdates = list(set(ifgdates)-set(bad_ifgdates))
-    good_ifgdates.sort()
-    good_imdates = tools_lib.ifgdates2imdates(good_ifgdates)
-    bad_imdates = list(set(imdates)-set(good_imdates))
-    bad_imdates.sort()
 
+    files = glob.glob(os.path.join(in_dir, '*'))
+    for file in files:
+        print(file)
+        if not os.path.isdir(file): #not copy directory, only file
+            print('Copy {}'.format(os.path.basename(file)), flush=True)
+            shutil.copy(file, tsadir)
 
-    ### Output list of removed image
-    bad_imfile = os.path.join(infodir, '11removed_image.txt')
-    with open(bad_imfile, 'w') as f:
-        for i in bad_imdates:
-            print('{}'.format(i), file=f)
-
-
-    #%% Plot network
-    pngfile = os.path.join(netdir, 'network11_all.png')
-    plot_lib.plot_network(ifgdates, bperp, [], pngfile)
-
-    pngfile = os.path.join(netdir, 'network11.png')
-    plot_lib.plot_network(ifgdates, bperp, bad_ifgdates, pngfile)
-
-    pngfile = os.path.join(netdir, 'network11_nobad.png')
-    plot_lib.plot_network(ifgdates, bperp, bad_ifgdates, pngfile, plot_bad=False)
-
-
-    #%% Finish
-    print('\nCheck network/*, 11bad_ifg_ras/* and 11ifg_ras/* in TS dir.')
-    print('If you want to change the bad ifgs to be discarded, re-run with different thresholds or make a ifg list and indicate it by --rm_ifg_list option in the next step.')
-
-    elapsed_time = time.time()-start
-    hour = int(elapsed_time/3600)
-    minite = int(np.mod((elapsed_time/60),60))
-    sec = int(np.mod(elapsed_time,60))
-    print("\nElapsed time: {0:02}h {1:02}m {2:02}s".format(hour,minite,sec))
-
-    print('\n{} Successfully finished!!\n'.format(os.path.basename(argv[0])))
-    print('Output directory: {}\n'.format(os.path.relpath(tsadir)))
+def check_edge_of_frame(ifgix):
+    ifgd = good_ifgdates[ifgix] 
+    unw_path = os.path.join(os.path.join(in_dir,ifgd),ifgd+".unw") 
+    ifgm = io_lib.read_img(unw_path,length,width)
+    mask_sig = io_lib.read_img(os.path.join(in_dir,"signal_mask"),length,width)
+    masked_pixels = np.where(mask_sig==0)
+    nan_in_circle = len(np.where(np.isnan(ifgm[masked_pixels]) == True)[0])
+    none_nan_in_circle = len(np.where(np.isnan(ifgm[masked_pixels]) == False)[0])
+    if none_nan_in_circle == 0:
+        percentage_nans = 1
+    else:
+        # ratio = nan_in_circle/none_nan_in_circle
+        percentage_nans = nan_in_circle/(none_nan_in_circle+nan_in_circle) 
+        print(percentage_nans)
+    # print(nan_in_circle)
+    # print(none_nan_in_circle)
+    if percentage_nans >=0.75:
+        bad_dates  = (ifgd)
+        print('removing this date')
+        print(ifgd)
+        return bad_dates
+    else:
+        return 
 
 
 #%% main

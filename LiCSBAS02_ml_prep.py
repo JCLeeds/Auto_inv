@@ -93,6 +93,9 @@ import SCM
 import LiCSBAS_io_lib as io_lib
 import LiCSBAS_tools_lib as tools_lib
 import LiCSBAS_plot_lib as plot_lib
+import mosiac_images as mi
+from PIL import Image
+import pylab as plt 
 
 class Usage(Exception):
     """Usage context manager"""
@@ -193,10 +196,12 @@ def main(argv=None,auto=None):
 
 
     #%% ENU
+    gdal.AllRegister()
     for ENU in ['E', 'N', 'U']:
         print('\nCreate {}'.format(ENU+'.geo'), flush=True)
         enutif = glob.glob(os.path.join(geocdir, '*.geo.{}.tif'.format(ENU)))
-
+        print('~~~~~~~~~~~~~~~~~~~BREAKING HERE~~~~~~~~~~~~~~~~~~~~~~~~~')
+        print(enutif)
         ### Download if not exist
         if len(enutif)==0:
             print('  No *.geo.{}.tif found in {}'.format(ENU, os.path.basename(geocdir)), flush=True)
@@ -294,6 +299,33 @@ def main(argv=None,auto=None):
         p = q.Pool(n_para)
         rc = p.map(convert_wrapper, range(n_ifg2))
         p.close()
+
+ 
+    
+
+        # image_list = []
+        # for ifgix, ifgd in enumerate(ifgdates2): 
+        #     out_dir1 = os.path.join(out_dir, ifgd)
+        #     unwfile_c = os.path.join(out_dir1, ifgd+'.unw')
+        #     if os.path.isfile(unwfile_c):
+        #         image_list.append(np.asarray(Image.open(unwfile_c + '.png')))
+        #     print(image_list)
+        #     # dates_list_title.append(ifgd)
+
+        # if len(image_list) > 3:
+        #     num_cols = 3
+        # else:
+        #     num_cols = len(image_list)
+
+        # figure = mi.show_image_list(list_images=image_list, 
+        #             list_titles=None,
+        #             num_cols=num_cols,
+        #             figsize=(50, 50),
+        #             grid=False,
+        #             title_fontsize=10)
+
+        # figure.savefig(os.path.join(out_dir,'All_ifgms_easy_look_up_raw.png'),bbox_inches='tight')
+        # plt.close('all')
         
         ifgd_ok = []
         for i, _rc in enumerate(rc):
@@ -335,8 +367,8 @@ def main(argv=None,auto=None):
     # test_unw = np.fromfile(os.path.join(outdir,"20230108_20230201/20230108_20230201.unw"))
     # print("test_unw length" + str(np.shape(test_unw)))
 
-    plot_lib.make_im_png(theta, pngfile_theta, 'insar', "theta", cbar=True,flatten=True)
-    plot_lib.make_im_png(phi, pngfile_phi, 'insar', "phi", cbar=True,flatten=True)
+    plot_lib.make_im_png(theta, pngfile_theta, 'viridis', "theta", cbar=True,flatten=True)
+    plot_lib.make_im_png(phi, pngfile_phi, 'viridis', "phi", cbar=True,flatten=True)
 
     #%% EQA.dem_par, slc.mli.par
     if not os.path.exists(mlipar):
@@ -349,7 +381,7 @@ def main(argv=None,auto=None):
             print('radar_frequency: {} Hz'.format(radar_freq), file=f)
             if center_time is not None:
                 print('center_time: {}'.format(center_time), file=f)
-
+        f.close()
     if not os.path.exists(dempar):
         print('\nCreate EQA.dem_par', flush=True)
 
@@ -382,7 +414,7 @@ def main(argv=None,auto=None):
     
         with open(dempar, 'w') as f:
             f.write('\n'.join(text))
-
+        f.close()
 
     #%% bperp
     print('\nCopy baselines file', flush=True)
@@ -397,6 +429,11 @@ def main(argv=None,auto=None):
     else:
         print('  No valid baselines file exists. Make dummy.', flush=True)
         io_lib.make_dummy_bperp(bperp_file_out, imdates)
+     
+    ifgdates = tools_lib.get_ifgdates(outdir)
+    
+    for i,ifgd in enumerate(ifgdates):
+        remove_ramps(ifgd,length,width)
 
 
     #%% Finish
@@ -409,6 +446,7 @@ def main(argv=None,auto=None):
     print('\n{} Successfully finished!!\n'.format(os.path.basename(argv[0])))
     print('Output directory: {}\n'.format(os.path.relpath(outdir)))
 
+    
 
 #%%
 def convert_wrapper(i):
@@ -437,6 +475,11 @@ def convert_wrapper(i):
     try:
         unw = gdal.Open(unw_tiffile).ReadAsArray()
         unw[unw==0] = np.nan
+        if np.count_nonzero(np.isnan(unw)) == len(unw):
+            print ('  {} cannot open. Skip'.format(ifgd+'.geo.unw.tif'), flush=True)
+            shutil.rmtree(ifgdir1)
+            return 1
+
     except: ## if broken
         print ('  {} cannot open. Skip'.format(ifgd+'.geo.unw.tif'), flush=True)
         shutil.rmtree(ifgdir1)
@@ -458,6 +501,14 @@ def convert_wrapper(i):
         cc[cc==0] = np.nan
         cc = tools_lib.multilook(cc, nlook, nlook, n_valid_thre)
 
+   
+
+    ### Invert and Remove Ramp
+    # REMOVE RAMP DOES THIS HERE SO THAT IT IS NOT NESSESARY IN THE GBIS INVERSION AND SEMIVARIAGRAM CALC DONE AFTER CLIP TO SAVE COMPUTE
+   
+    # Afit, m = tools_lib.fit2d(unw,w=None,deg="1")
+    # unw = np.subtract(unw, Afit)
+
     ### Output float
     # unw = -unw/4/np.pi*0.0555 # Test line remove I think this converts to meters?
     unw.tofile(unwfile)
@@ -465,12 +516,31 @@ def convert_wrapper(i):
     cc.tofile(ccfile)
 
     ### Make png
-    unwpngfile = os.path.join(ifgdir1, ifgd+'.unw.png')
-    plot_lib.make_im_png(np.angle(np.exp(1j*unw/cycle)*cycle), unwpngfile, cmap_wrap, ifgd+'.unw', vmin=-np.pi, vmax=np.pi, cbar=True)
+    unwpngfile = os.path.join(ifgdir1, ifgd+'.unw_without_ramp_removal.png')
+    plot_lib.make_im_png(np.angle(np.exp(1j*unw/cycle)*cycle), unwpngfile, cmap_wrap, ifgd+'.unw_without_ramp_removal', vmin=-np.pi, vmax=np.pi, cbar=True)
     ccpngfile = os.path.join(ifgdir1,ifgd+'.cc.png')
     plot_lib.make_im_png(cc,ccpngfile, 'gray', (ifgd+".cc") ,vmin=np.min(cc),vmax=np.max(cc),cbar=True)
     
     return 0
+
+
+def remove_ramps(ifgd,length,width):
+   
+    
+    print('removing ramp from ' + str(ifgd))
+    ifgdir1 = os.path.join(outdir, ifgd)
+    # if not os.path.exists(ifgdir1): os.mkdir(ifgdir1)
+
+    unwfile = os.path.join(ifgdir1, ifgd+'.unw')  
+    unw = io_lib.read_img(unwfile, length, width)
+    unw[unw==0] = np.nan
+    Afit, m = tools_lib.fit2d(unw,w=None,deg="1")
+    unw = np.subtract(unw, Afit)
+
+
+    unwpngfile = os.path.join(ifgdir1, ifgd+'.unw.png')
+    plot_lib.make_im_png(np.angle(np.exp(1j*unw/cycle)*cycle), unwpngfile, cmap_wrap, ifgd+'.unw', vmin=-np.pi, vmax=np.pi, cbar=True)
+    unw.tofile(unwfile)
 
 
 #%% main

@@ -78,6 +78,10 @@ import SCM
 import LiCSBAS_io_lib as io_lib
 import LiCSBAS_tools_lib as tools_lib
 import LiCSBAS_plot_lib as plot_lib
+import cv2
+
+
+from scipy.ndimage import generic_filter
 
 class Usage(Exception):
     """Usage context manager"""
@@ -109,6 +113,7 @@ def main(argv=None,auto=None):
     ex_range_file = []
     poly_file = []
     circ_sig_mask = None 
+    nan_check_required = True
     try:
         n_para = len(os.sched_getaffinity(0))
     except:
@@ -207,6 +212,7 @@ def main(argv=None,auto=None):
         print("\nCalculate coh_avg and define mask (<={})".format(coh_thre), flush=True)
         coh_avg = np.zeros((length, width), dtype=np.float32)
         n_coh = np.zeros((length, width), dtype=np.int16)
+        n_unw = 0
         for ifgix, ifgd in enumerate(ifgdates): 
             ccfile = os.path.join(in_dir, ifgd, ifgd+'.cc')
             if os.path.getsize(ccfile) == length*width:
@@ -216,9 +222,12 @@ def main(argv=None,auto=None):
                 coh = io_lib.read_img(ccfile, length, width)
                 coh[np.isnan(coh)] = 0 # Fill nan with 0
 
+           
+         
             coh_avg += coh
             n_coh += (coh!=0)
 
+      
         n_coh[n_coh==0] = 99999 #to avoid zero division
         coh_avg = coh_avg/n_coh
 
@@ -230,6 +239,20 @@ def main(argv=None,auto=None):
         coh_avg.tofile(coh_avgfile)
         title = 'Average coherence'
         plot_lib.make_im_png(coh_avg, coh_avgfile+'.png', cmap_noise, title)
+
+
+    ### Adds in a check for pixels masked in everything apart from one ifgm and removes this aswell 
+    if nan_check_required and circ_sig_mask is None:
+        if len(ifgdates) > 2:
+            n_unw = 0 
+            for ifgix, ifgd in enumerate(ifgdates): 
+                unwfile = os.path.join(in_dir, ifgd, ifgd+'.unw')
+                unw = io_lib.read_img(unwfile, length, width)
+                unw[unw == 0] = np.nan # Fill 0 with nan
+                n_unw += np.isnan(unw) # Summing number of unnan unw
+
+            bool_mask[n_unw == (len(ifgdates) - 1)] = True
+
 
 
     #%% Check and set range to be masked based on specified area
@@ -246,6 +269,7 @@ def main(argv=None,auto=None):
     if ex_range_file:
         with open(ex_range_file) as f:
             ex_range_str_all = f.readlines()
+        f.close()
         
         for ex_range_str1 in ex_range_str_all:
             if not tools_lib.read_range(ex_range_str1, width, length):
@@ -261,7 +285,7 @@ def main(argv=None,auto=None):
         print('Masking using polygon file') 
         with open(poly_file) as f:
             poly_strings_all = f.readlines()
-
+        f.close()
         dempar = os.path.join(in_dir, 'EQA.dem_par')
         lat1 = float(io_lib.get_param_par(dempar, 'corner_lat')) # north
         lon1 = float(io_lib.get_param_par(dempar, 'corner_lon')) # west
@@ -292,8 +316,8 @@ def main(argv=None,auto=None):
         bool_mask = bool_mask + circ_sig_mask
 
 
-
     if circ_sig_mask is None:
+ 
         ### Save image of mask
         mask = np.float32(~bool_mask)
         maskfile = os.path.join(out_dir, 'mask')
@@ -315,6 +339,7 @@ def main(argv=None,auto=None):
         plot_lib.make_im_png(mask, pngfile, cmap_noise, title, 0, 1)
         
         print('\nMask defined.')
+
 
 
 
@@ -344,6 +369,19 @@ def main(argv=None,auto=None):
         p.close()
 
     print("", flush=True)
+    # Added by J condon dones binary erosion during masking 
+    if circ_sig_mask is None:
+        if n_ifg2 > 0:
+            ### Mask with parallel processing
+            if n_para > n_ifg2:
+                n_para = n_ifg2
+                
+            print('  {} parallel processing...'.format(n_para), flush=True)
+            p = q.Pool(n_para)
+            p.map(binary_erosion, range(n_ifg2))
+            p.close()
+
+        print("", flush=True)
 
 
     #%% Copy other files
@@ -367,6 +405,89 @@ def main(argv=None,auto=None):
     print("\nElapsed time: {0:02}h {1:02}m {2:02}s".format(hour,minite,sec))
 
     print('\n{} Successfully finished!!\n'.format(os.path.basename(argv[0])))
+    print('Output directory: {}\n'.format(os.path.relpath(out_dir)))
+
+def binary_erosion(ifgix):
+    ifgd = ifgdates2[ifgix]
+    out_dir1 = os.path.join(out_dir, ifgd)
+    unwfile = os.path.join(out_dir1, ifgd+'.unw')
+    unw = io_lib.read_img(unwfile, length, width)
+    unw[unw==0] = np.nan
+    unw = generic_filter(
+    unw, 
+    function=is_isolated, 
+    size=3,  # 3x3 neighborhood
+    mode='constant', 
+    cval=np.nan  # Treat border as NaN
+    )
+ 
+    # Apply morphological opening
+    # unw = cv2.morphologyEx(unw, cv2.MORPH_OPEN, kernel)
+    # unw.tofile(unwfile)
+    pngfile = os.path.join(out_dir1, ifgd+'.unw_binary_errosion_applied_not_implemented.png')
+    title = '{} ({}pi/cycle)'.format(ifgd, cycle*2)
+    plot_lib.make_im_png(np.angle(np.exp(1j*unw/cycle)*cycle), pngfile, cmap_wrap, title, -np.pi, np.pi, cbar=False)
+        
+def is_isolated(patch):
+    center_value = patch[len(patch) // 2]  # Center pixel in the neighborhood
+    if np.isnan(center_value):
+        return np.nan  # Keep NaN as NaN
+    
+    # Check if all surrounding pixels (excluding the center) are NaN
+    neighbors = np.delete(patch, len(patch) // 2)
+    if np.all(np.isnan(neighbors)):
+        return np.nan  # Isolated pixel, mark as NaN
+    return center_value  # Keep non-isolated values intact
+
+#%%
+def mask_wrapper(ifgix):
+    ifgd = ifgdates2[ifgix]
+    if np.mod(ifgix,100) == 0:
+        print("  {0:3}/{1:3}th unw...".format(ifgix, len(ifgdates2)), flush=True)
+
+    unwfile = os.path.join(in_dir, ifgd, ifgd+'.unw')
+    unw = io_lib.read_img(unwfile, length, width)
+    unw[unw==0] = np.nan
+        
+    ### Mask
+    unw[bool_mask] = np.nan
+
+    if cc_ifg_thre:
+        ccfile = os.path.join(in_dir, ifgd, ifgd+'.cc')
+        if os.path.getsize(ccfile) == length*width:
+            coh = io_lib.read_img(ccfile, length, width, np.uint8)
+            coh = coh.astype(np.float32)/255
+        else:
+            coh = io_lib.read_img(ccfile, length, width)
+            coh[np.isnan(coh)] = 0 # Fill nan with 0
+        unw[np.where(coh < cc_ifg_thre)] = np.nan
+
+    ### Output
+    out_dir1 = os.path.join(out_dir, ifgd)
+    if not os.path.exists(out_dir1): os.mkdir(out_dir1)
+    if circ_sig_mask is not None:
+        unw.tofile(os.path.join(out_dir1, ifgd+'_signal_masked.unw'))
+        pngfile = os.path.join(out_dir1, ifgd+'_signal_masked.unw.png')
+        shutil.copy(unwfile, os.path.join(out_dir,ifgd))
+
+    else:
+        unw.tofile(os.path.join(out_dir1, ifgd+'.unw'))
+        pngfile = os.path.join(out_dir1, ifgd+'.unw.png')
+
+    
+    if not os.path.exists(os.path.join(out_dir1, ifgd+'.cc')):
+        ccfile = os.path.join(in_dir, ifgd, ifgd+'.cc')
+        os.symlink(os.path.relpath(ccfile, out_dir1), os.path.join(out_dir1, ifgd+'.cc'))
+
+    ## Output png for masked unw
+
+   
+    title = '{} ({}pi/cycle)'.format(ifgd, cycle*2)
+    plot_lib.make_im_png(np.angle(np.exp(1j*unw/cycle)*cycle), pngfile, cmap_wrap, title, -np.pi, np.pi, cbar=False)
+
+
+    # print("\nElapsed time: {0:02}h {1:02}m {2:02}s".format(hour,minite,sec))
+    # print('\n{} Successfully finished!!\n'.format(os.path.basename(argv[0])))
     print('Output directory: {}\n'.format(os.path.relpath(out_dir)))
 
 

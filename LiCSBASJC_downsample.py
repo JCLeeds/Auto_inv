@@ -30,6 +30,9 @@ import shapely
 from shapely.geometry import Polygon
 import time 
 import downsamp as ds 
+import mosiac_images as mi
+from PIL import Image
+import pylab as plt 
 
 class Usage(Exception):
     """Usage context manager"""
@@ -42,7 +45,7 @@ def main(geoc_ml_path,output_geoc_ml_path,rad,center,new_points,argv=None,stacke
         if argv == None:
             argv = sys.argv
 
-        global ifgdates2, in_dir, out_dir, length, width, bool_mask, cmap_wrap, cycle, radius, cent, nmpoints, stack_data, return_cov
+        global ifgdates2, in_dir, out_dir, length, width, bool_mask, cmap_wrap, cmap_noise, cmap_unwrap, cycle, radius, cent, nmpoints, stack_data, return_cov
         
         try:
             n_para = len(os.sched_getaffinity(0))
@@ -52,6 +55,7 @@ def main(geoc_ml_path,output_geoc_ml_path,rad,center,new_points,argv=None,stacke
         cmap_noise = 'viridis'
         # cmap_wrap = SCM.romaO
         cmap_wrap = 'insar'
+        cmap_unwrap = 'bwr'
         q = multi.get_context('fork')
 
         # length, width = float_ifgm.shape 
@@ -61,7 +65,7 @@ def main(geoc_ml_path,output_geoc_ml_path,rad,center,new_points,argv=None,stacke
         except ValueError as err:
             print("Signal mask file missing from input directory please signal mask step first: ", err)
 
-        print(bool_mask[0:10])
+        # print(bool_mask[0:10])
         in_dir = geoc_ml_path
         out_dir = output_geoc_ml_path
         # down_inner = step_inner
@@ -102,8 +106,8 @@ def main(geoc_ml_path,output_geoc_ml_path,rad,center,new_points,argv=None,stacke
         rb = ra*(1-1/recip_f) ## polar radius
         pixsp_a = 2*np.pi*rb/360*abs(dlat)
         pixsp_r = 2*np.pi*ra/360*dlon*np.cos(np.deg2rad(centerlat))
-        print("PIXSP_A===== " + str(pixsp_a))
-        print("PIXELSP_R==== " + str(pixsp_r))
+        # print("PIXSP_A===== " + str(pixsp_a))
+        # print("PIXELSP_R==== " + str(pixsp_r))
         
         Lat = np.arange(0, (length + 1) * pixsp_r, pixsp_r)
         Lon = np.arange(0, (width + 1) * pixsp_a, pixsp_a)
@@ -153,14 +157,38 @@ def main(geoc_ml_path,output_geoc_ml_path,rad,center,new_points,argv=None,stacke
         print("", flush=True)
 
     #%% Copy other files
-        files = glob.glob(os.path.join(in_dir, '*'))
-        for file in files:
-            if not os.path.isdir(file): #not copy directory, only file
-                print('Copy {}'.format(os.path.basename(file)), flush=True)
-                shutil.copy(file, output_geoc_ml_path)
+        # files = glob.glob(os.path.join(in_dir, '*'))
+        # for file in files:
+        #     if not os.path.isdir(file): #not copy directory, only file
+        #         print('Copy {}'.format(os.path.basename(file)), flush=True)
+        #         shutil.copy(file, output_geoc_ml_path)
 
         print('\n{} Successfully finished!!\n'.format(os.path.basename(argv[0])))
         print('Output directory: {}\n'.format(os.path.relpath(out_dir)))
+        image_list = []
+        for ifgix, ifgd in enumerate(ifgdates2): 
+            out_dir1 = os.path.join(out_dir, ifgd)
+            png_regular_unw = os.path.join(out_dir1, ifgd+ '.regular_unw.png')
+
+            if os.path.isfile(png_regular_unw):
+                image_list.append(np.asarray(Image.open(png_regular_unw)))
+                print(image_list)
+        # dates_list_title.append(ifgd)
+
+        if len(image_list) > 3:
+            num_cols = 3
+        else:
+            num_cols = len(image_list)
+
+        figure = mi.show_image_list(list_images=image_list, 
+                    list_titles=None,
+                    num_cols=num_cols,
+                    figsize=(50, 50),
+                    grid=False,
+                    title_fontsize=10)
+
+        figure.savefig(os.path.join(out_dir,'All_ifgms_easy_look_up_downsamp.png'),bbox_inches='tight')
+        plt.close('all')
 
         
 def mask_downsampler(ifgix):
@@ -193,29 +221,30 @@ def mask_downsampler(ifgix):
 
     print('at average')
     if return_cov:
-        print(return_cov)
+        # print(return_cov)
         sill_nugget_range = return_cov[ifgd] 
         print(return_cov[ifgd])
-        unw,Lon,Lat,Inc,Heading,cov, Lon_m, Lat_m = poly_average_opti(in_dir,unw,phi,theta,bool_mask,radius,cent,nmpoints,sill_nugget_range)
+        unw,Lon,Lat,Heading,Inc, cov, Lon_m, Lat_m = poly_average_opti(in_dir,unw,phi,theta,bool_mask,radius,cent,nmpoints,sill_nugget_range)
+        # unw, Lat , Lon = LiCS_tools.invert_plane(unw, Lat, Lon)
     else:
-        unw,Lon,Lat,Inc,Heading,Lon_m, Lat_m = poly_average_opti(in_dir,unw,phi,theta,bool_mask,radius,cent,nmpoints)
-
+        unw,Lon,Lat,Heading,Inc,Lon_m, Lat_m = poly_average_opti(in_dir,unw,phi,theta,bool_mask,radius,cent,nmpoints)
+        # unw, Lat , Lon = LiCS_tools.invert_plane(unw, Lat, Lon)
 
     # Convert from rad to meters 
     # unw = -unw*(0.0555/(4*np.pi)) # ------> rad to m conversion is -lamba/4*pi posative is -LOS
      
-    print("2nd mask")
-    print("shape scaled ===== " + str(np.shape(unw)))
+    # print("2nd mask")
+    # print("shape scaled ===== " + str(np.shape(unw)))
     
     ### Output
    
-    print("output_directory1########### " + out_dir1)
+    # print("output_directory1########### " + out_dir1)
     if not os.path.exists(out_dir1): os.mkdir(out_dir1)
 
-    if stack_data:
-        unw.tofile(os.path.join(out_dir,'stacked_ds.unw'))
-    else:
-        unw.tofile(os.path.join(out_dir1, ifgd+'.unw'))
+    # if stack_data:
+    #     unw.tofile(os.path.join(out_dir,'stacked_ds.unw'))
+    # else:
+    unw.tofile(os.path.join(out_dir1, ifgd+'.unw'))
 
     if not os.path.exists(os.path.join(out_dir1, ifgd+'.cc')):
         ccfile = os.path.join(in_dir, ifgd, ifgd+'.cc')
@@ -223,20 +252,20 @@ def mask_downsampler(ifgix):
 
     ## Output png for masked unw
     
-    pngfile_Inc = os.path.join(out_dir1, '.Inc.png')
-    pngfile_Head = os.path.join(out_dir1, '.Head.png')
-    png_regular_unw = os.path.join(out_dir1, '.regular_unw.png')
+    pngfile_Inc = os.path.join(out_dir1, ifgd+ '.Inc.png')
+    pngfile_Head = os.path.join(out_dir1, ifgd+ '.Head.png')
+    png_regular_unw = os.path.join(out_dir1, ifgd+ '.regular_unw.png')
 
 
     # title = '{} ({}pi/cycle)'.format(ifgd, cycle*2)
     # plot_lib.make_scatter_png(Lon,Lat,np.angle(np.exp(1j*unw/cycle)*cycle), pngfile_unw, cmap_wrap, title, -np.pi, np.pi, cbar=True)
     print("done 1 ")
-    plot_lib.make_scatter_png(Lon,Lat,Inc, pngfile_Inc, cmap_wrap, "Incidence", cbar=True)
+    plot_lib.make_scatter_png(Lon,Lat,Inc, pngfile_Inc, cmap_noise, "Incidence", cbar=True)
     print("done 2 ")
-    plot_lib.make_scatter_png(Lon,Lat,Heading, pngfile_Head, cmap_wrap, "Heading",cbar=True)
+    plot_lib.make_scatter_png(Lon,Lat,Heading, pngfile_Head, cmap_noise, "Heading",cbar=True)
     print("done 3")
-    plot_lib.make_scatter_png(Lon,Lat,unw, png_regular_unw, cmap_wrap, "Displacement (radians)",cbar=True)
-    Frame_identifier = in_dir.split('/')[-1].split('_')[1]
+    plot_lib.make_scatter_png(Lon,Lat,unw, png_regular_unw, cmap_unwrap, "Displacement (radians)",cbar=True,downsamp=True)
+    Frame_identifier = in_dir.split('/')[-1]
 
     
     npzdownout = os.path.join(os.path.join(out_dir),Frame_identifier+'_'+ifgd+'.ds_unw_Lon_Lat_Inc_Heading.npz')
@@ -245,9 +274,9 @@ def mask_downsampler(ifgix):
     day=[737063]
     if return_cov:
         sill_nugget_range = return_cov[ifgd] 
-        np.savez(npzdownout, ph_disp=unw, lonlat=np.vstack((Lon,Lat)).T,la=Inc,heading=np.mean(Heading),cov=cov,day=day,lonlat_m=np.vstack((Lon_m,Lat_m)).T,sill_nugget_range=[sill_nugget_range[0],sill_nugget_range[1],sill_nugget_range[2]])
+        np.savez(npzdownout, ph_disp=unw, lonlat=np.vstack((Lon,Lat)).T,la=Inc,heading=Heading,cov=cov,day=day,lonlat_m=np.vstack((Lon_m,Lat_m)).T,sill_nugget_range=[sill_nugget_range[0],sill_nugget_range[1],sill_nugget_range[2]])
     else:
-        np.savez(npzdownout, ph_disp=unw, lonlat=np.vstack((Lon,Lat)).T,la=Inc,heading=np.mean(Heading),day=day, lonlat_m=np.vstack((Lon_m,Lat_m)).T)
+        np.savez(npzdownout, ph_disp=unw, lonlat=np.vstack((Lon,Lat)).T,la=Inc,heading=Heading,day=day, lonlat_m=np.vstack((Lon_m,Lat_m)).T)
     
     LiCS_lib.npz2mat(npzdownout)
     # os.rename(npzdownout[:-3]+'mat',os.path.join('./us6000jk0t_grond_area/data',npzdownout[:-3]+'mat'))
@@ -302,28 +331,34 @@ def poly_average_opti(geoc_ml_path,unw,theta,phi,mask,radius,cent,nmpoints,sill_
     t = time.time()
     # usgs_Lon = cent[1] # Remove
     # usgs_Lat = cent[0] # Remove
-    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ max Disp before downsamp " + str(np.max(unw)) + '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~' )
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ max Disp before downsamp " + str(np.nanmax(unw)) + '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~' )
     points = ds.resample_all(unw,theta,phi, lon_grid, lat_grid,m_cent,radius,nmpoints,dlon,dlat,pixsp_a,pixsp_r,lon1,lat1)
     # Changed to output in lat long hopefully
+   
+    if len(points[:,2][~np.isnan(points[:,2])]) < nmpoints/2: 
+        points = ds.resample_all(unw,theta,phi, lon_grid, lat_grid,m_cent,radius,nmpoints*1.5,dlon,dlat,pixsp_a,pixsp_r,lon1,lat1)
+    else:
+        pass
+
     ifgm = points[:,2]
     Lon_m = points[:,0]
     Lat_m = points[:,1]
-    Inc = points[:,3]
-    Head = points[:,4]
+    Inc = points[:,4]
+    Head = points[:,3]
     Lon = points[:,5]
     Lat = points[:,6]
-    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ max Disp before downsamp " + str(np.max(ifgm)) + '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~' )
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ max Disp after downsamp " + str(np.nanmax(ifgm)) + '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~' )
 
     # Lon_m = Lon_m[np.nonzero(Lon_m)]
     # Lat_m = Lat_m[np.nonzero(Lat_m)]
-    print(points[:,5])
-    print(points[:,6])
+    # print(points[:,5])
+    # print(points[:,6])
 
-    print("size ifgm= "+ str(np.shape(ifgm))+
-          " size Lon= " + str(np.shape(Lon))+
-        " size Lat= " + str(np.shape(Lat))+ 
-        " size Inc= " + str(np.shape(Inc))+ 
-        " size Head = " + str(np.shape(Head)))
+    # print("size ifgm= "+ str(np.shape(ifgm))+
+    #       " size Lon= " + str(np.shape(Lon))+
+    #     " size Lat= " + str(np.shape(Lat))+ 
+    #     " size Inc= " + str(np.shape(Inc))+ 
+    #     " size Head = " + str(np.shape(Head)))
     
     # Remove nans
     Lon = Lon[~np.isnan(ifgm)]
@@ -335,11 +370,11 @@ def poly_average_opti(geoc_ml_path,unw,theta,phi,mask,radius,cent,nmpoints,sill_
     ifgm = ifgm[~np.isnan(ifgm)]
    
 
-    print("size ifgm= "+ str(len(ifgm))+
-          " size Lon= " + str(len(Lon))+
-        " size Lat= " + str(len(Lat))+ 
-        " size Inc= " + str(len(Inc))+ 
-        " size Head = " + str(len(Head)))
+    # print("size ifgm= "+ str(len(ifgm))+
+    #       " size Lon= " + str(len(Lon))+
+    #     " size Lat= " + str(len(Lat))+ 
+    #     " size Inc= " + str(len(Inc))+ 
+    #     " size Head = " + str(len(Head)))
     
     print("DOWN_SAMPLED NUMBER OF POINTS ==== " + str(len(points[:,2])))
     # points = ds.resample_all(unw,theta,phi, lon_grid, lat_grid, scaler_a_outer, scaler_r_outer, scaler_a_inner,scaler_r_inner,m_cent,radius)
@@ -355,11 +390,11 @@ def poly_average_opti(geoc_ml_path,unw,theta,phi,mask,radius,cent,nmpoints,sill_
     if return_cov:
         # if len(return_cov) == 3:
         cov = LiCS_tools.calc_cov(Lon_m,Lat_m,ifgm,sill_nugget_range[0],sill_nugget_range[1],sill_nugget_range[2])
-        return ifgm, Lon, Lat, Inc, Head, cov, Lon_m, Lat_m
+        return ifgm, Lon, Lat, Head, Inc, cov, Lon_m, Lat_m
         # else:
         #     print("Error Please Enter Cov in format [sill,range,nugget]")
     else:
-        return ifgm, Lon, Lat, Inc, Head, Lon_m, Lat_m 
+        return ifgm, Lon, Lat, Head, Inc, Lon_m, Lat_m 
 
 
 

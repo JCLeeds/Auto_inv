@@ -10,13 +10,16 @@ from selenium.webdriver.chrome.service import Service
 import obspy
 from obspy.clients.fdsn import Client 
 from obspy import UTCDateTime 
-
+import pylab as plt
 # import bs4 as bs
 # import urllib.request
 import time 
 import subprocess as sp
 import os 
 import shutil
+import coseis_lib as cslib
+import numpy as np
+import timeout_decorator
 
 class USGS_event:
     """
@@ -24,13 +27,23 @@ class USGS_event:
     """
     def __init__(self,ID):
         self.ID = ID 
+      
         self.event_page = self.define_event_page(ID)
+        # if self.ID.startswith('nn'):
+        #         self.time_pos_depth, self.strike_dip_rake, self.MTdict = self.scrape(self.event_page)
+        # else:
         self.time_pos_depth, self.strike_dip_rake, self.MTdict = self.pull_USGS_info(self.ID)
         # self.time_pos_depth, self.strike_dip_rake, self.MTdict = self.scrape(self.event_page)
         self.ifgms_csv = './event_ifgms_'+ self.ID +'.csv'
-        self.run_event_ifgm_RScrape()
+        try:
+            self.run_event_ifgm_RScrape()
+        except Exception as e:
+            print(e)
+
         self.create_folder_stuct()
         self.create_event_file()
+        self.create_beachball()
+        self.diameter_mask_in_m = self.diameter_mask()
 
     def define_event_page(self,ID):
         """
@@ -154,7 +167,8 @@ class USGS_event:
                     'PercentDC':None,
                     'Half Duration':None,
                     'centroid_lat':None,
-                    'centroid_lon':None
+                    'centroid_lon':None,
+                    'magnitude_type': None
                     }
         strike_dip_rake = {"strike":0,
                             "dip":0, 
@@ -164,12 +178,30 @@ class USGS_event:
                             "Depth":None}
         client = Client(client)
         event = client.get_events(eventid=ID)[0]
+        # print(event)
         for x in event.magnitudes:
             if x['magnitude_type'] == 'Mww':
-                MTdict['magnitude'] =  x.mag
+                MTdict['magnitude'] =  x.mag 
+                MTdict['magnitude_type'] = x['magnitude_type']
+                break 
+            elif x['magnitude_type'] == 'Mwb':
+                MTdict['magnitude'] =  x.mag 
+                MTdict['magnitude_type'] = x['magnitude_type']
+                break
+            elif  x['magnitude_type'] == 'Mwr':
+                MTdict['magnitude'] =  x.mag 
+                MTdict['magnitude_type'] = x['magnitude_type']
+                break
+         
+            # print(event.magnitudes)
+        if MTdict['magnitude'] is None: # Ask tim about mwb
+            MTdict['magnitude'] =  event.magnitudes[0].mag 
+            MTdict['magnitude_type'] = x['magnitude_type']
         # for x in event.focal_mechanisms[0]:
-        x = event.focal_mechanisms[0]
+        # x = event.focal_mechanisms[0]
+        # print(event.origins)
         for x in event.focal_mechanisms:
+            # print(x)
             print(x.resource_id)
             if 'mww' in str(x.resource_id):
                 strike_dip_rake['strike'] = [x.nodal_planes.nodal_plane_1.strike,x.nodal_planes.nodal_plane_2.strike]
@@ -187,8 +219,26 @@ class USGS_event:
                 MTdict['moment'] = x.moment_tensor.scalar_moment
                 MTdict['type'] = 'mwb'
                 break
+            elif 'mwr' in str(x.resource_id):
+                strike_dip_rake['strike'] = [x.nodal_planes.nodal_plane_1.strike,x.nodal_planes.nodal_plane_2.strike]
+                strike_dip_rake['dip'] = [x.nodal_planes.nodal_plane_1.dip,x.nodal_planes.nodal_plane_2.dip] 
+                strike_dip_rake['rake'] = [x.nodal_planes.nodal_plane_1.rake,x.nodal_planes.nodal_plane_2.rake] 
+                MTdict['PercentDC'] = x.moment_tensor.double_couple
+                MTdict['moment'] = x.moment_tensor.scalar_moment
+                MTdict['type'] = 'mwr'
+                break
+        if MTdict['moment'] is None:
+            x = event.focal_mechanisms[0]
+            strike_dip_rake['strike'] = [x.nodal_planes.nodal_plane_1.strike,x.nodal_planes.nodal_plane_2.strike]
+            strike_dip_rake['dip'] = [x.nodal_planes.nodal_plane_1.dip,x.nodal_planes.nodal_plane_2.dip] 
+            strike_dip_rake['rake'] = [x.nodal_planes.nodal_plane_1.rake,x.nodal_planes.nodal_plane_2.rake] 
+            MTdict['PercentDC'] = x.moment_tensor.double_couple
+            MTdict['moment'] = x.moment_tensor.scalar_moment
+            MTdict['type'] = 'mwr'
+
+
         for x in event.origins:
-            if 'mww' in str(x.resource_id) and x.depth_type == 'from moment tensor inversion' and MTdict['type'] == 'mww':
+            if 'mww' in str(x.resource_id) and x.depth_type =='from moment tensor inversion' and MTdict['type'] == 'mww':
                 MTdict['centroid_lat'] = x.latitude
                 MTdict['centroid_lon'] = x.longitude
                 MTdict['Depth_MT'] = x.depth/1000
@@ -198,15 +248,32 @@ class USGS_event:
                 MTdict['centroid_lon'] = x.longitude
                 MTdict['Depth_MT'] = x.depth/1000
                 break
+            elif 'mwr' in str(x.resource_id) and x.depth_type =='from moment tensor inversion' and MTdict['type'] == 'mwr':
+                MTdict['centroid_lat'] = x.latitude
+                MTdict['centroid_lon'] = x.longitude
+                MTdict['Depth_MT'] = x.depth/1000
+                break
+        if MTdict['centroid_lat'] is None:
+            x = event.origin[0]
+            MTdict['centroid_lat'] = x.latitude
+            MTdict['centroid_lon'] = x.longitude
+            MTdict['Depth_MT'] = x.depth/1000
+         
+
         time_pos_depth['Depth'] = event.origins[0].depth/1000
         time_pos_depth['DateTime'] = str(UTCDateTime(event.origins[0].time)).replace('T',' ').replace('Z','')
         time_pos_depth['Position'] = [event.origins[0].latitude,event.origins[0].longitude]
+        time_pos_depth['Position_USGS'] = [event.origins[0].latitude,event.origins[0].longitude]
+        print(time_pos_depth)
+        print(strike_dip_rake)
+        print(MTdict)
         return  time_pos_depth, strike_dip_rake, MTdict
+    @timeout_decorator.timeout(1000)
     def run_event_ifgm_RScrape(self):
         """
         Creates event csv for USGS event from LiCSEarthquake catalog
         """
-        args=["Rscript", "./scott_scripts/event_ifgms.R", self.ID ,self.ifgms_csv]
+        args=["Rscript", "/uolstore/Research/a/a285/homes/ee18jwc/code/auto_inv/scott_scripts/event_ifgms.R", self.ID ,self.ifgms_csv]
         sp.run(args,shell=False)
         return 
     
@@ -242,6 +309,7 @@ class USGS_event:
             f.write("latitude = " + str(self.time_pos_depth['Position'][0]) + '\n')
             f.write("longitude = " + str(self.time_pos_depth['Position'][1]) + '\n')
             f.write("magnitude = " + str(self.MTdict['magnitude']) + '\n')
+            f.write("magnitude type = " + str(self.MTdict['magnitude_type']) + '\n')
             f.write("moment = " + str(self.MTdict['moment']) + '\n')
             f.write("depth = " + str(float(self.time_pos_depth['Depth'])*1000) + "\n") 
             # f.write("region = " + "\n")
@@ -261,9 +329,138 @@ class USGS_event:
             # f.write("duration = ")
         shutil.copy(self.event_file_path, os.path.join(self.LiCS_locations,self.ID+'.txt'))
         return 
-   
+
+    def create_beachball(self):
+        from obspy.imaging.beachball import beachball 
+        figure = plt.figure()
+        figure.suptitle('USGS Fault Mechanism: NP1 Strike: ' + 
+                        str(round(float(self.strike_dip_rake['strike'][0]),2)) +
+                        ' Dip: ' + str(round(float(self.strike_dip_rake['dip'][0]),2))+ 
+                        ' Rake: '  +str(round(float(self.strike_dip_rake['rake'][0]),2)) + '\n'
+                        'NP2 Strike: ' +  str(round(float(self.strike_dip_rake['strike'][1]),2)) +
+                        ' Dip: ' + str(round(float(self.strike_dip_rake['dip'][1]),2))+ 
+                        ' Rake: ' + str(round(float(self.strike_dip_rake['rake'][1]),2)))
+        mt = [self.strike_dip_rake['strike'][0],self.strike_dip_rake['dip'][0],self.strike_dip_rake['rake'][0]]
+        beachball(mt,size=200,linewidth=2,facecolor='r',fig=figure)
+        figure.savefig(os.path.join(self.LiCS_locations,self.ID+'_Seismic_beachball.png'))
+        return 
+
+    def diameter_mask(self):
+        xmin,xmax,xint = -150000,150000,1000
+        ymin,ymax,yint = -150000,150000,1000
+        x = np.arange(xmin,xmax,xint)
+        y= np.arange(ymin,ymax,yint)
+        xx,yy = np.meshgrid(x,y)
+        xx_vec = np.reshape(xx, -1)
+        yy_vec = np.reshape(yy,-1)
+        xcen,ycen = 0,0 
+        strike = self.strike_dip_rake['strike'][0]
+        dip = self.strike_dip_rake['dip'][0]
+        rake = self.strike_dip_rake['rake'][0]
+        mu = 3.2e10
+        slip_rate=5.5e-5
+        L = np.cbrt(float(self.MTdict['moment'])/(slip_rate*mu))
+        slip = L * slip_rate
+        centroid_depth =  self.time_pos_depth['Depth']*1000 
+        print('DEPTH FOR GENERATION')
+        print(centroid_depth) # setting depth as depth always too deep for MTDict
+       
+        # print(centroid_depth)
+        width = L 
+        length = L 
+        centroid_depth = centroid_depth + (width/2) * np.sin(np.deg2rad(dip)) 
+        widths = []
+        checker = False
+        while checker is False:
+            print('centroid_depth used to generate 0.005m signal mask')
+            print(centroid_depth)
+            # centroid_depth = 10000
+    
+            # model = [xcen,ycen,strike,dip,rake,slip,length,centroid_depth,width]
+            disp = cslib.disloc3d3(xx_vec,yy_vec,xoff=xcen,yoff=ycen,depth=centroid_depth,length=length,
+                                width=width,slip=slip,opening=0,strike=strike,dip=dip,rake=rake,nu=0.25)
+            
+            disp_E = disp[0,:]
+            disp_N = disp[1,:]
+            disp_V = disp[2,:]
+            # print(len(disp_V))
+            # print(len(xx))
+            # print(len(xx_vec))
+            # cslib.plot_enu(disp,model,x,y)
+            # plt.show()
+            # print(np.max(disp_E))
+            # print(np.min(disp_E)
+      
+            index_E_above = np.argwhere(np.abs(disp_E)>0.005)
+            if len(index_E_above) == 0:
+                pass 
+            else: 
+                widths.append(np.abs(np.max(xx_vec[index_E_above]) - np.min(xx_vec[index_E_above])))
+                # print(width_E_X)
+                widths.append(np.abs(np.max(yy_vec[index_E_above]) - np.min(yy_vec[index_E_above])))
+
+            index_N_above = np.argwhere(np.abs(disp_N)>0.005)
+            if len(index_N_above) == 0:
+                pass 
+            else: 
+                widths.append(np.abs(np.max(xx_vec[index_N_above]) - np.min(xx_vec[index_N_above])))
+                # print(width_N_X)
+                widths.append(np.abs(np.max(yy_vec[index_N_above]) - np.min(yy_vec[index_N_above])))
+
+            index_V_above = np.argwhere(np.abs(disp_V)>0.005)
+            if len(index_V_above) == 0:
+                pass 
+            else: 
+                widths.append(np.abs(np.max(xx_vec[index_V_above]) - np.min(xx_vec[index_V_above])))
+                # print(width_V)
+                widths.append(np.abs(np.max(yy_vec[index_V_above]) - np.min(yy_vec[index_V_above])))
+
+            centroid_depth = centroid_depth - 1000
+            print(centroid_depth)
+            if centroid_depth < 0:
+                centroid_depth = centroid_depth + 1000
+                widths.append((111.13*0.75*1e3))
+
+            if len(widths) == 0:
+                checker = False
+            elif len(widths) > 0:
+                checker = True 
+
+            
+            if checker == True and np.max(np.array(widths)) < (111.13*0.5*1e3/3):
+                widths =  [111.13*0.5*1e3/3]
+            
+            if checker == True and np.max(np.array(widths)) > (111.13*1*1e3)/3:
+                print('MASK IS HERE')
+                widths = [111.13*1*1e3/4]
+            # checker = [x if len(widths)>0 else len(widths) == 0]
+            # print(len)
+            # print(checker)
+
+        print(widths)
+        print('mask width')
+        print(str(np.max(np.array(widths))))
+        print('x3 for fudge factor')
+        print(str(np.max(np.array(widths))*3))
+        print('Degrees')
+        print(str(np.max(np.array(widths))*3/(111.13*1e3)))
+        print('potentail Clip')
+        print(str(np.max(np.array(widths))*3*4/(111.13*1e3)))
+        print('slip')
+        print(str(slip))
+        print('length-width')
+        print(str(L))
+        
+
+        return np.max(np.array(widths))*3
+
+
+    def manual_input(self,strike,dip,rake,moment):
+        return        
+
     def create_folder_stuct(self):
         cwd = os.getcwd()
+        print(cwd)
         self.Grond_location = os.path.join(cwd,self.ID +"_grond_area")
         self.Grond_config = os.path.join(self.Grond_location,"config")
         self.Grond_data = os.path.join(self.Grond_location,"data")
@@ -278,7 +475,8 @@ class USGS_event:
 
         #GBIS 
         self.GBIS_location = os.path.join(cwd,self.ID +"_GBIS_area")
-        self.GBIS_insar_template = os.path.join(self.GBIS_location,self.ID + '.inp')
+        self.GBIS_insar_template_NP1 = os.path.join(self.GBIS_location,self.ID + '_NP1.inp')
+        self.GBIS_insar_template_NP2 = os.path.join(self.GBIS_location,self.ID + '_NP2.inp')
 
 
        
@@ -310,35 +508,45 @@ class USGS_event:
             pass 
         else:
             os.mkdir(self.Grond_insar)
-        if os.path.isfile(self.grond_insar_template):
-            pass 
-        else:
-            shutil.copy("insar_rectangular_template.gronf",self.grond_insar_template)
+        # if os.path.isfile(self.grond_insar_template):
+        #     pass 
+        # else:
+        #     shutil.copy("insar_rectangular_template.gronf",self.grond_insar_template)
 
-        if os.path.isdir(self.gf_stores):
-            pass
-        else:
-            cwd = os.getcwd() 
-            os.chdir(self.Grond_location)
-            sp.call("../download_gf_stores.sh")
-            os.chdir(cwd)
-        if os.path.isdir(self.crust_location):
-            pass 
-        else:
-            cwd = os.getcwd() 
-            os.chdir(self.gf_stores)
-            sp.call("../../download_gf_stores.sh")
-            os.chdir(cwd)
+        # if os.path.isdir(self.gf_stores):
+        #     pass
+        # else:
+        #     cwd = os.getcwd() 
+        #     os.chdir(self.Grond_location)
+        #     sp.call("../download_gf_stores.sh")
+        #     os.chdir(cwd)
+        # if os.path.isdir(self.crust_location):
+        #     pass 
+        # else:
+        #     cwd = os.getcwd() 
+        #     os.chdir(self.gf_stores)
+        #     sp.call("../../download_gf_stores.sh")
+        #     os.chdir(cwd)
 
         if os.path.isdir(self.GBIS_location):
             pass 
         else:
             os.mkdir(self.GBIS_location)
 
-        if os.path.isfile(self.GBIS_insar_template):
-            pass 
+        if os.path.isfile(self.GBIS_insar_template_NP1):
+            print('Im here ')
+            # os.remove(self.GBIS_insar_template_NP1)
+            # os.chdir(cwd)
+            shutil.copy('example_GBIS_input.inp',self.GBIS_insar_template_NP1)
         else: 
-            shutil.copy("example_GBIS_input.inp",self.GBIS_insar_template)
+            shutil.copy("example_GBIS_input.inp",self.GBIS_insar_template_NP1)
+        
+        if os.path.isfile(self.GBIS_insar_template_NP2):
+            # os.chdir(cwd)
+            # os.remove(self.GBIS_insar_template_NP2)
+            shutil.copy("example_GBIS_input.inp",self.GBIS_insar_template_NP2)
+        else: 
+            shutil.copy('example_GBIS_input.inp',self.GBIS_insar_template_NP2)
         
 
 

@@ -56,7 +56,11 @@ def disloc3d3(x, y, xoff=0, yoff=0,
     
     # check that top of fault isn't above 0 m surface
     top_depth = depth - (width/2) * np.sin(np.deg2rad(dip))
-    assert top_depth >= float(0), "Fault breaches 0 m surface, please change either centroid depth or fault width."        
+    
+    if top_depth <= float(0):
+        print("Fault breaches 0 m surface, please change either centroid depth or fault width. setting depth to minima top_depth = 10m")
+        depth = (width/2) * np.sin(np.deg2rad(dip)) + 10
+    # assert top_depth >= float(0), "Fault breaches 0 m surface, please change either centroid depth or fault width."        
     
     x = x - xoff
     y = y - yoff

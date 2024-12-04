@@ -224,24 +224,33 @@ def main(argv=None,auto=None,single_date=None):
     url = os.path.join(LiCSARweb, trackID, frameID, 'metadata', 'metadata.txt')
     tools_lib.download_data(url, 'metadata.txt')
 
+    print('Download poly.txt', flush=True)
+    url = os.path.join(LiCSARweb, trackID, frameID, 'metadata', frameID +'-poly.txt')
+    print(url)
+    tools_lib.download_data(url, frameID +'-poly.txt')
+
+
     print('', flush=True)
 
 
-    #%% mli
+    #%% mli # For both this and gacos i have added / to the end of the path this may be wrong but works 
     mlitif = frameID+'.geo.mli.tif'
     if os.path.exists(mlitif):
         print('{} already exist. Skip.'.format(mlitif), flush=True)
     else:
         ### Get available dates
         print('Searching latest epoch for mli...', flush=True)
-        url = os.path.join(LiCSARweb, trackID, frameID, 'epochs')
+        url = os.path.join(LiCSARweb, trackID, frameID, 'epochs/')
+        print(url)
         response = requests.get(url)
+    
         
         response.encoding = response.apparent_encoding #avoid garble
         html_doc = response.text
         soup = BeautifulSoup(html_doc, "html.parser")
         tags = soup.find_all(href=re.compile(r"\d{8}"))
         imdates_all = [tag.get("href")[0:8] for tag in tags]
+        # print(imdates_all)
         _imdates = np.int32(np.array(imdates_all))
         _imdates = (_imdates[(_imdates>=startdate)*(_imdates<=enddate)]).astype('str').tolist()
         
@@ -250,7 +259,8 @@ def main(argv=None,auto=None,single_date=None):
         for i, imd in enumerate(reversed(_imdates)):
             if np.mod(i, 10) == 0:
                 print("\r  {0:3}/{1:3}".format(i, len(_imdates)), end='', flush=True)
-            url_epoch = os.path.join(url, imd)
+            url_epoch = os.path.join(url, imd+'/')
+            print(url_epoch)
             response = requests.get(url_epoch)
             response.encoding = response.apparent_encoding #avoid garble
             html_doc = response.text
@@ -264,7 +274,7 @@ def main(argv=None,auto=None,single_date=None):
         ### Download
         if imd1:
             print('Downloading {}.geo.mli.tif as {}.geo.mli.tif...'.format(imd1, frameID), flush=True)
-            url_mli = os.path.join(url, imd1, imd1+'.geo.mli.tif')
+            url_mli = os.path.join(url, imd1+'/', imd1+'.geo.mli.tif')
             tools_lib.download_data(url_mli, mlitif)
         else:
             print('\nNo mli available on {}'.format(url), file=sys.stderr, flush=True)
@@ -279,7 +289,7 @@ def main(argv=None,auto=None,single_date=None):
 
         ### Get available dates
         print('\nDownload GACOS data', flush=True)
-        url = os.path.join(LiCSARweb, trackID, frameID, 'epochs')
+        url = os.path.join(LiCSARweb, trackID, frameID, 'epochs/')
         response = requests.get(url)
         response.encoding = response.apparent_encoding #avoid garble
         html_doc = response.text
@@ -295,7 +305,7 @@ def main(argv=None,auto=None,single_date=None):
         print('  Searching available epochs ({} parallel)...'.format(n_para), flush=True)
 
         args = [(i, len(_imdates),
-                 os.path.join(url, imd, '{}.sltd.geo.tif'.format(imd)),
+                 os.path.join(url, imd+'/', '{}.sltd.geo.tif'.format(imd)),
                  os.path.join(gacosdir, imd+'.sltd.geo.tif')
                  ) for i, imd in enumerate(_imdates)]
     
@@ -343,7 +353,7 @@ def main(argv=None,auto=None,single_date=None):
     #%% InSAR data
     ### Get available dates
     print('\nDownload geotiff of InSAR products', flush=True)
-    url_ifgdir = os.path.join(LiCSARweb, trackID, frameID, 'interferograms')
+    url_ifgdir = os.path.join(LiCSARweb, trackID, frameID, 'interferograms/')
     response = requests.get(url_ifgdir)
     
     response.encoding = response.apparent_encoding #avoid garble
@@ -415,7 +425,7 @@ def main(argv=None,auto=None,single_date=None):
 
         ### Get available dates
         print('\nDownload MLI data', flush=True)
-        url = os.path.join(LiCSARweb, trackID, frameID, 'epochs')
+        url = os.path.join(LiCSARweb, trackID, frameID, 'epochs/')
         response = requests.get(url)
         response.encoding = response.apparent_encoding  # avoid garble
         html_doc = response.text

@@ -72,6 +72,9 @@ import SCM
 import LiCSBAS_io_lib as io_lib
 import LiCSBAS_tools_lib as tools_lib
 import LiCSBAS_plot_lib as plot_lib
+import mosiac_images as mi
+from PIL import Image
+import pylab as plt 
 
 class Usage(Exception):
     """Usage context manager"""
@@ -181,8 +184,24 @@ def main(argv=None,auto=None,index_clip=False):
     lon1 = float(io_lib.get_param_par(dempar, 'corner_lon')) # west
     postlat = float(io_lib.get_param_par(dempar, 'post_lat')) # negative
     postlon = float(io_lib.get_param_par(dempar, 'post_lon')) # positive
+    # dlat = float(LiCS_lib.get_param_par(dempar, 'post_lat')) #negative
+    # dlon = float(LiCS_lib.get_param_par(dempar, 'post_lon')) #positive
     lat2 = lat1+postlat*(length-1) # south
     lon2 = lon1+postlon*(width-1) # east
+    # centerlat = lat1+dlat*(length/2)
+    # ra = float(LiCS_lib.get_param_par(dempar, 'ellipsoid_ra'))
+    # recip_f = float(LiCS_lib.get_param_par(dempar, 'ellipsoid_reciprocal_flattening'))
+    # rb = ra*(1-1/recip_f) ## polar radius
+    # pixsp_a = 2*np.pi*rb/360*abs(dlat)
+    # pixsp_r = 2*np.pi*ra/360*dlon*np.cos(np.deg2rad(centerlat))
+    # # print("PIXSP_A===== " + str(pixsp_a))
+
+    # Lat = np.arange(0, (length + 1) * pixsp_r, pixsp_r)
+    # Lon = np.arange(0, (width + 1) * pixsp_a, pixsp_a)
+    # Lat = Lat[:length]
+    # Lon = Lon[:width]
+    # Lon, Lat = np.meshgrid(Lon,Lat)
+    # ll = [lons.flatten(),lats.flatten()]
 
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
@@ -221,6 +240,7 @@ def main(argv=None,auto=None,index_clip=False):
 
     clipareafile = os.path.join(out_dir, 'cliparea.txt')
     with open(clipareafile, 'w') as f: f.write(range_str)
+    f.close()
 
 
     #%% Make clipped par files
@@ -228,11 +248,12 @@ def main(argv=None,auto=None,index_clip=False):
     dempar_c = os.path.join(out_dir, 'EQA.dem_par')
     
     ### slc.mli.par
-    with open(mlipar, 'r') as f: file = f.read()
+    with open(mlipar, 'r') as f: file = f.read() 
     file = re.sub(r'range_samples:\s*{}'.format(width), 'range_samples: {}'.format(width_c), file)
     file = re.sub(r'azimuth_lines:\s*{}'.format(length), 'azimuth_lines: {}'.format(length_c), file)
+    f.close()
     with open(mlipar_c, 'w') as f: f.write(file)
-
+    f.close()
     ### EQA.dem_par
     with open(dempar, 'r') as f: file = f.read()
     file = re.sub(r'width:\s*{}'.format(width), 'width: {}'.format(width_c), file)
@@ -240,6 +261,7 @@ def main(argv=None,auto=None,index_clip=False):
     file = re.sub(r'corner_lat:\s*{}'.format(lat1), 'corner_lat: {}'.format(lat1_c), file)
     file = re.sub(r'corner_lon:\s*{}'.format(lon1), 'corner_lon: {}'.format(lon1_c), file)
     with open(dempar_c, 'w') as f: f.write(file)
+    f.close()
 
 
     #%% Clip or copy other files than unw and cc
@@ -251,24 +273,29 @@ def main(argv=None,auto=None,index_clip=False):
             continue  #not copy 
         elif os.path.getsize(file) == width*length*4: ##float file
             print('Clip {}'.format(os.path.basename(file)), flush=True)
+            print('CHEKER 1 ')
             data = io_lib.read_img(file, length, width)
             data = data[y1:y2, x1:x2]
             filename = os.path.basename(file)
             outfile = os.path.join(out_dir, filename)
             data.tofile(outfile)
         elif file==os.path.join(in_dir, 'slc.mli.png'):
+            print('CHEKER 2 ')
             print('Recreate slc.mli.png', flush=True)
             mli = io_lib.read_img(os.path.join(out_dir, 'slc.mli'), length_c, width_c)
             pngfile = os.path.join(out_dir, 'slc.mli.png')
             plot_lib.make_im_png(mli, pngfile, 'gray', 'MLI', cbar=False)
         elif file==os.path.join(in_dir, 'hgt.png'):
             print('Recreate hgt.png', flush=True)
+            print('CHEKER 3 ')
             hgt = io_lib.read_img(os.path.join(out_dir, 'hgt'), length_c, width_c)
             vmax = np.nanpercentile(hgt, 99)
             vmin = -vmax/3 ## bnecause 1/4 of terrain is blue
             pngfile = os.path.join(out_dir, 'hgt.png')
             plot_lib.make_im_png(hgt, pngfile, 'terrain', 'DEM (m)', vmin, vmax, cbar=True)
         else:
+            print('Checker 4 ')
+            print(file)
             print('Copy {}'.format(os.path.basename(file)), flush=True)
             shutil.copy(file, out_dir)
 
@@ -298,6 +325,28 @@ def main(argv=None,auto=None,index_clip=False):
         p.map(clip_wrapper, range(n_ifg2))
         p.close()
 
+    image_list = []
+    dates_list_title = [] 
+    # J.C addition make mosiac for frame 
+    for ifgix, ifgd in enumerate(ifgdates): 
+        out_dir1 = os.path.join(out_dir, ifgd)
+        unwfile_c = os.path.join(out_dir1, ifgd+'.unw')
+        image_list.append(np.asarray(Image.open(unwfile_c + '.png')))
+        dates_list_title.append(ifgd)
+
+    if len(image_list) > 3:
+        num_cols = 3
+    else:
+        num_cols = len(image_list)
+
+    figure = mi.show_image_list(list_images=image_list, 
+                list_titles=None,
+                num_cols=num_cols,
+                figsize=(50, 50),
+                grid=False,
+                title_fontsize=10)
+    figure.savefig(os.path.join(out_dir,'All_ifgms_easy_look_up_clipped.png'),bbox_inches='tight')
+    plt.close('all')
 
     #%% Finish
     elapsed_time = time.time()-start
@@ -311,6 +360,7 @@ def main(argv=None,auto=None,index_clip=False):
 
 
 #%%
+
 def clip_wrapper(ifgix):
     if np.mod(ifgix, 100) == 0:
         print("  {0:3}/{1:3}th unw...".format(ifgix, len(ifgdates2)), flush=True)
@@ -330,9 +380,14 @@ def clip_wrapper(ifgix):
         return
     coh = io_lib.read_img(ccfile, length, width, dtype=ccformat)
 
-    ### Clip
+  
+    ### Clip and remove ramp 
     unw = unw[y1:y2, x1:x2]
     coh = coh[y1:y2, x1:x2]
+
+    # # REMOVE RAMP DOES THIS HERE SO THAT IT IS NOT NESSESARY IN THE GBIS INVERSION AND SEMIVARIAGRAM CALC DONE AFTER CLIP TO SAVE COMPUTE
+    # Afit, m = tools_lib.fit2d(unw,w=None,deg="2")
+    # unw = np.subtract(unw, Afit)
 
     ### Output
     out_dir1 = os.path.join(out_dir, ifgd)

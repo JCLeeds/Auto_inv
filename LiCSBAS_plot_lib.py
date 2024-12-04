@@ -83,7 +83,7 @@ def make_im_png(data, pngfile, cmap, title, vmin=None, vmax=None, cbar=True,flat
     
     return
 
-def make_scatter_png(lon,lat,data,pngfile,cmap,title,vmin=None, vmax=None, cbar=True):
+def make_scatter_png(lon,lat,data,pngfile,cmap,title,vmin=None, vmax=None, cbar=True,downsamp=None):
     """
     Make png image. ADDED BY JOHN CONDON 
     cmap can be 'insar'. To wrap data, np.angle(np.exp(1j*x/cycle)*cycle)
@@ -92,6 +92,7 @@ def make_scatter_png(lon,lat,data,pngfile,cmap,title,vmin=None, vmax=None, cbar=
     if cmap=='insar':
         cdict = tools_lib.cmap_insar()
         # plt.register_cmap(cmap=mpl.colors.LinearSegmentedColormap('insar', cdict))
+        cmap = mpl.colors.LinearSegmentedColormap('insar', cdict)
         interp = 'nearest'
     else:
         interp = 'nearest' #'antialiased'
@@ -105,8 +106,10 @@ def make_scatter_png(lon,lat,data,pngfile,cmap,title,vmin=None, vmax=None, cbar=
     ### Plot
     fig, ax = plt.subplots(1, 1, figsize=(figsizex, figsizey))
     plt.tight_layout()
-    
-    im = ax.scatter(lon,lat, c=data, cmap=mpl.colors.LinearSegmentedColormap('insar', cdict), s=1)
+    if downsamp:
+        im = ax.scatter(lon,lat, c=data, cmap=cmap, s=10)
+    else:
+        im = ax.scatter(lon,lat, c=data, cmap=cmap, s=1)
     # ax.set_xticklabels()
     # ax.set_yticklabels([])
     ax.set_xlabel('Lon (m)')
@@ -327,11 +330,11 @@ def plot_network(ifgdates, bperp, rm_ifgdates, pngfile, plot_bad=True):
         for label in ax.get_xticklabels():
             label.set_rotation(20)
             label.set_horizontalalignment('right')
-    ax.grid(b=True, which='major')
+    ax.grid(visible=True, which='major')
 
     ### Add bold line every 1yr
     ax.xaxis.set_minor_locator(mdates.YearLocator())
-    ax.grid(b=True, which='minor', linewidth=2)
+    ax.grid(visible=True, which='minor', linewidth=2)
 
     ax.set_xlim((imdates_dt_all[0]-dt.timedelta(days=10),
                  imdates_dt_all[-1]+dt.timedelta(days=10)))

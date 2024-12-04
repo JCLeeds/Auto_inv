@@ -28,8 +28,8 @@ def local2llh(xy, origin):
 
     delta = np.inf
     c = 0
-
-    while np.max(np.abs(delta)) > 1e-8:
+    delta_limit = 1e-8
+    while np.max(np.abs(delta)) > delta_limit:
         C = np.sqrt((1 - e**2 * np.sin(llh[1, z])**2)) * np.tan(llh[1, z])
 
         M = a * ((1 - e**2/4 - 3*e**4/64 - 5*e**6/256) * llh[1, z] -
@@ -51,7 +51,15 @@ def local2llh(xy, origin):
 
         c = c + 1
         if c > 100:
+            delta_limit = 1e-7
+            # raise ValueError('Convergence failure.')
+        if c > 1000:
+            delta_limit = 1e-6 
+        if c > 1500:
+            delta_limit = 1e-5
+        if c > 2000: 
             raise ValueError('Convergence failure.')
+
 
     llh[0, z] = (np.arcsin(xy[0, z] * C / a) / np.sin(llh[1, z])) + origin[0]
 
@@ -68,3 +76,7 @@ def local2llh(xy, origin):
 
 
 
+if __name__ == '__main__':
+   llh = local2llh([[-8.78396],[2.06516]],[29.690,65.379])
+  
+   print(llh)

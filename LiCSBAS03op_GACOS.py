@@ -153,7 +153,7 @@ def make_hdr(ztdpar, hdrfile):
                "YDIM           {}".format(np.abs(dlat_ztd))]
     with open(hdrfile, "w") as f:
         f.write("\n".join(strings))
-
+    f.close()
 
 #%% Main
 def main(argv=None,auto=None):
@@ -326,7 +326,7 @@ def main(argv=None,auto=None):
             if imd is not None:
                 with open(no_gacos_imfile, mode='a') as fnogacos:
                     print('{}'.format(imd), file=fnogacos)
-    
+            
     
     #%% Correct unw files
     print('\nCorrect unw data...', flush=True)
@@ -336,7 +336,7 @@ def main(argv=None,auto=None):
         ### Add header
         with open(gacinfofile, "w") as f:
             print(' Phase STD (rad) Before After  ReductionRate', file=f)
-    
+        f.close()
     no_gacos_ifgfile = os.path.join(out_dir, 'no_gacos_ifg.txt')
     if os.path.exists(no_gacos_ifgfile): os.remove(no_gacos_ifgfile)
 
@@ -371,7 +371,7 @@ def main(argv=None,auto=None):
             elif _return[i][0] == 2:
                 with open(gacinfofile, "a") as f:
                     print('{0}  {1:4.1f}  {2:4.1f} {3:5.1f}%'.format(*_return[i][1]), file=f)
-    
+                f.close()
     print("", flush=True)
     
     
@@ -404,6 +404,7 @@ def main(argv=None,auto=None):
             for line in f:
                 print(line, end='')
         print('')
+        f.close()
 
     if os.path.exists(no_gacos_imfile):
         print('GACOS data for the following dates are missing:')
@@ -411,6 +412,7 @@ def main(argv=None,auto=None):
             for line in f:
                 print(line, end='')
         print('')
+        f.close()
 
 #%%
 def convert_wrapper(ix_im):
@@ -554,6 +556,8 @@ def correct_wrapper(i):
     plot_lib.make_im_png(np.angle(np.exp(1j*unw_cor/cycle)*cycle), pngfile, cmap_wrap, title, -np.pi, np.pi, cbar=False)
 
     return 2, [ifgd, std_unw, std_unwcor, rate]
+
+
 
 
 #%% main

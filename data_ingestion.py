@@ -4,6 +4,8 @@ import LiCSBAS02_ml_prep as LiCS_ml
 import numpy as np 
 import scrape_USGS as sUSGS
 import os 
+import shutil
+import timeout_decorator
 
 class DataBlock:
     """
@@ -16,8 +18,8 @@ class DataBlock:
         self.add_flags_to_df()
         self.geoc_path = []
         self.gacos_path = [] 
-        self.geocml_path = []
-        self.gacosml_path = []
+        # self.geocml_path = []
+        # self.gacosml_path = []
        
     def create_df(self):
         """
@@ -44,7 +46,7 @@ class DataBlock:
         self.eq_df.loc[self.eq_df['Flag'] == 'other','Flag'] = 'pre_seismic'
         print(self.eq_df)
         return 
-    
+    @timeout_decorator.timeout(3600)
     def LiCS_data_pull_single(self,index,single_date=True):
         """
         Wrapped LiCS step one, takes a single df entry and gives the interfergram assocated with those two dates and nothing else. 
@@ -54,7 +56,7 @@ class DataBlock:
         LiC_get.main(auto=[self.eq_df['frame'][index],self.eq_df['start_aqu'][index],self.eq_df['end_aqu'][index]],single_date=single_date)
         os.chdir(cwd)
         return 
-    
+    @timeout_decorator.timeout(3600)
     def LiCS_data_pull_date_range(self,frame,start,end,single_date=False):
         """
         Wrapped LiCS step one which takes frame, startdate, enddata and single_date flag 
@@ -70,21 +72,31 @@ class DataBlock:
     # def pull_frames_dates_frames_shortest_ifgm(self):
     #     frame_list = self.get_frame_list()
     #     date_range_for_frames
-
+    @timeout_decorator.timeout(3600)
     def pull_frame_coseis(self):
         """
         Filters dataframe to be only coseismic dates and then calls LiCS_data_pull_single to pull each date listen for each frame 
         saves in directory based on frame ID 
         """
         # print(self.eq_df)
+        self.reset_df()
         frame_list = self.get_frame_list()
         geoc_path = []
         gacos_path = []
+        print(frame_list)
         for ii in range(len(frame_list)):
             self.group_by_flag('coseismic')
             self.group_by_frame(frame_list[ii])
+            if self.eq_df.empty:
+                print(frame_list[ii])
+                print('EARTHQUAKE FRAME NO COSEISMIC')
+                self.reset_df() 
+                continue 
+            else:
+                pass 
             print(self.eq_df)
             data_exist, path_GEOC, path_GACOS = self.data_checker(frame_list[ii])
+
             if data_exist is False:
                 for jj in range(len(self.eq_df)):
                     print(self.eq_df['frame'][jj])
@@ -97,7 +109,7 @@ class DataBlock:
             gacos_path.append(path_GACOS)
             self.reset_df()
         return geoc_path, gacos_path
-
+    @timeout_decorator.timeout(3600)
     def pull_data_frame_dates(self,startdate,enddate,frame=None,single_ifgm=False):
         """
         Given a startdate and end data pull all data from frames associated with the Event,
@@ -133,8 +145,11 @@ class DataBlock:
                         single_geoc, single_gacos = self.rename_LiCS_dir(frame[ii])
                         geoc_path.append(single_geoc)
                         gacos_path.append(single_gacos)
-                else:
-                    pass
+                    else:
+                        geoc_path.append(single_geoc)
+                        gacos_path.append(single_gacos)
+                    
+                # return geoc_path, gacos_path
 
             else:
                 data_exist, geoc_path, gacos_path = self.data_checker(frame)
@@ -142,8 +157,10 @@ class DataBlock:
                     self.LiCS_data_pull_date_range(frame,startdate,enddate,single_date=single_ifgm)
                     geoc_path, gacos_path = self.rename_LiCS_dir(frame)
                 else:
-                    pass
-            
+                    geoc_path.append(geoc_path)
+                    gacos_path.append(gacos_path)
+                    
+            self.reset_df()
             return geoc_path, gacos_path
         
     def rename_LiCS_dir(self,identifier):
@@ -154,6 +171,8 @@ class DataBlock:
         # if os.path.isdir(os.path.join(cwd,self.USGS_event.ID +'_insar_processing')):
         print("######################## I HAVE ARRIVED ##################################")
         os.rename(os.path.join(cwd,"GEOC"),os.path.join(os.path.join(cwd,self.USGS_event.ID +'_insar_processing'),"GEOC_"+identifier))
+        if os.path.isdir(os.path.join(os.path.join(cwd,self.USGS_event.ID +'_insar_processing'),"GACOS_"+identifier)):
+            shutil.rmtree(os.path.join(os.path.join(cwd,self.USGS_event.ID +'_insar_processing'),"GACOS_"+identifier))
         os.rename(os.path.join(cwd,"GACOS"),os.path.join(os.path.join(cwd,self.USGS_event.ID +'_insar_processing'),"GACOS_"+identifier))
         return os.path.join(os.path.join(cwd,self.USGS_event.ID +'_insar_processing'),"GEOC_"+identifier), os.path.join(os.path.join(cwd,self.USGS_event.ID +'_insar_processing'),"GACOS_"+identifier)
         # else:
@@ -238,29 +257,29 @@ class DataBlock:
             return dir_with_ifgm_data, meta_file_paths
 
     
-    def create_geoc_ml(self,input_geoc_gacos):
-        """
-        Converting TIFS to Float32 using LiCS step two
-        """
-        if isinstance(input_geoc_gacos,list):
-            geoc_ml_path = []
-            for ii in range(len(input_geoc_gacos)):
-                output_geoc_gacos = str(input_geoc_gacos[ii]+"_floatml")
-                geoc_ml_path.append(output_geoc_gacos)
-                if os.path.isdir(output_geoc_gacos): 
-                    print(output_geoc_gacos + '  path in use using data already populated')
-                else:
-                    LiCS_ml.main(auto=[input_geoc_gacos[ii],output_geoc_gacos])
+    # def create_geoc_ml(self,input_geoc_gacos):
+    #     """
+    #     Converting TIFS to Float32 using LiCS step two
+    #     """
+    #     if isinstance(input_geoc_gacos,list):
+    #         geoc_ml_path = []
+    #         for ii in range(len(input_geoc_gacos)):
+    #             output_geoc_gacos = str(input_geoc_gacos[ii]+"_floatml")
+    #             geoc_ml_path.append(output_geoc_gacos)
+    #             if os.path.isdir(output_geoc_gacos): 
+    #                 print(output_geoc_gacos + '  path in use using data already populated')
+    #             else:
+    #                 LiCS_ml.main(auto=[input_geoc_gacos[ii],output_geoc_gacos])
 
-        else:
-            output_geoc_gacos = str(input_geoc_gacos+"_floatml")
-            if os.path.isdir(output_geoc_gacos): 
-                print(output_geoc_gacos + '  path in use using data already populated')
-            else:
-                LiCS_ml.main(auto=[input_geoc_gacos,output_geoc_gacos])
-            geoc_ml_path = output_geoc_gacos
+    #     else:
+    #         output_geoc_gacos = str(input_geoc_gacos+"_floatml")
+    #         if os.path.isdir(output_geoc_gacos): 
+    #             print(output_geoc_gacos + '  path in use using data already populated')
+    #         else:
+    #             LiCS_ml.main(auto=[input_geoc_gacos,output_geoc_gacos])
+    #         geoc_ml_path = output_geoc_gacos
 
-        return geoc_ml_path
+    #     return geoc_ml_path
 
 
 if __name__ == '__main__':

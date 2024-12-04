@@ -182,7 +182,7 @@ def GBIS_GMT_OUTPUT_FORWARD_MODEL(vertex_path,opt_model,EQA_dem_par,unw_file,Inc
     ll = [lons.flatten(),lats.flatten()]
     ll = np.array(ll,dtype=float)
     xy = llh.llh2local(ll,np.array([locations[0],locations[1]],dtype=float))
- 
+    
 
     length = opt_model[0]
     width = opt_model[1]
@@ -254,7 +254,7 @@ def GBIS_GMT_OUTPUT_FORWARD_MODEL(vertex_path,opt_model,EQA_dem_par,unw_file,Inc
     print(np.shape(llh_usgs))
 
     np.shape(disp)
-    disp = disp
+    disp = -disp
     unw_file = os.path.join(unw_file) 
     unw = np.fromfile(unw_file, dtype='float32').reshape((length_ifgm, width_ifgm)) 
     Inc = np.fromfile(Inc_file, dtype='float32').reshape((length_ifgm, width_ifgm))

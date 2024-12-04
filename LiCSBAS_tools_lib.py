@@ -209,6 +209,7 @@ def convert_size(size_bytes):
 
 #%%
 def download_data(url, file, n_retry=3):
+    print(url)
     for i in range(n_retry):
         try:
             start = time.time()
@@ -679,31 +680,32 @@ def calc_cov(Lon, Lat, ifgm, sill_cov,range_cov,nugget_cov):
     xdist = Lon
     ydist = Lat
     nb_nans = len(ifgm[~np.isnan(ifgm)])
-    print(nb_nans)
+    # print(nb_nans)
     distances = np.array(list(map(list, zip(xdist, ydist))))
     dist_matrix = np.sqrt(
         (distances[:, 0] - distances[:, 0, np.newaxis])**2
         + (distances[:, 1] - distances[:, 1, np.newaxis])**2)
     print("############################COV CALC#####################################")
-    print(dist_matrix[0:100])
-    print(sill_cov)
-    print(range_cov)
-    print(nugget_cov)
+    # print(dist_matrix[0:100])
+    # print(sill_cov)
+    # print(range_cov)
+    # print(nugget_cov)
     cov=sill_cov*np.exp(-dist_matrix/range_cov)
     cov_shape = np.shape(cov)
     cov = cov + nugget_cov*np.eye(cov_shape[0],M=cov_shape[1])
-    print(cov[0:100])
+    # print(cov[0:100])
     return cov 
 
 
 def invert_plane(ifgm, lat, lon):
-    indexs_to_remove_for_decimation = np.random.randint(low=0,high=len(ifgm),size=int(len(ifgm)*0.9)) # change to smaller value decimation to harsh this needs to be sped up 
-    ifgm = ifgm[~indexs_to_remove_for_decimation]
-    lat = lat[~indexs_to_remove_for_decimation]
-    lon = lon[~indexs_to_remove_for_decimation]   
-    array_of_one = np.zeros(np.shape(lat)) + 1
-    G = list(zip(lat**2,lon**2,lat*lon,lat,lon,array_of_one))
-    d = ifgm  
+    indexs_to_remove_for_decimation = np.random.randint(low=0,high=len(ifgm),size=int(len(ifgm)*0.1)) # change to smaller value decimation to harsh this needs to be sped up 
+    # ifgm_orig = ifgm.copy()
+    ifgm_dec = ifgm[~indexs_to_remove_for_decimation]
+    lat_dec = lat[~indexs_to_remove_for_decimation]
+    lon_dec = lon[~indexs_to_remove_for_decimation]   
+    array_of_one = np.zeros(np.shape(lat_dec)) + 1
+    G = list(zip(lat_dec**2,lon_dec**2,lat_dec*lon_dec,lat_dec,lon_dec,array_of_one))
+    d = ifgm_dec  
     m = np.linalg.inv((np.transpose(G) @ G)) @ np.transpose(G) @ (d) 
     ifgm_ramp_removed = ifgm - (m[0]*(lat**2) + m[1]*(lon**2) + m[2]*lat*lon + m[3]*lat + m[4]*lon +m[5]) 
     print('Ramp params: y^2a=' + str(m[0]) +'  x^2 b=' + str(m[1]) + ' xy c=' + str(m[2]) +' y d= ' + str(m[3]) + ' x e=' + str(m[4]))
